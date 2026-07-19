@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader import clean, find_dialog, fingerprint  # noqa: E402
+from quest_reader import clean, find_dialog, fingerprint, split_narration  # noqa: E402
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -103,3 +103,39 @@ def test_clean_recolle_les_lignes():
 def test_empreinte_ignore_les_bords_bruites():
     base = "Pssst, approche-toi. Si tu as des badges, j'ai des marchandises."
     assert fingerprint(base) == fingerprint(base + " —…")
+
+
+def test_clean_garde_les_didascalies():
+    """Les astérisques marquent les actions : ils doivent survivre."""
+    brut = "E x * il sourit * Salut. Comment vas-tu ? \\ ; ."
+    assert clean(brut) == "* il sourit * Salut. Comment vas-tu ?"
+
+
+def test_clean_garde_une_didascalie_finale():
+    assert clean("Bonjour toi. * il part *") == "Bonjour toi. * il part *"
+
+
+def test_clean_accepte_l_espace_avant_la_ponctuation():
+    """En français, « ? » et « ! » sont précédés d'une espace."""
+    assert clean("Salut ! Ca va ? \\ ; .") == "Salut ! Ca va ?"
+
+
+@pytest.mark.parametrize(
+    "texte, attendu",
+    [
+        (
+            "* se racle la gorge * Bonjour à toi.",
+            [(True, "se racle la gorge"), (False, "Bonjour à toi.")],
+        ),
+        (
+            "Bonjour. * il part *",
+            [(False, "Bonjour."), (True, "il part")],
+        ),
+        (
+            "Salut à toi, voyageur.",
+            [(False, "Salut à toi, voyageur.")],
+        ),
+    ],
+)
+def test_separe_narration_et_dialogue(texte, attendu):
+    assert split_narration(texte) == attendu

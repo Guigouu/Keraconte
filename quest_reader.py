@@ -8,17 +8,20 @@ bulle de dialogue, l'OCRise et la lit avec une voix française.
 import argparse
 import hashlib
 import os
+import pathlib
 import queue
 import re
 import signal
+import subprocess
 import sys
+import tempfile
 import threading
 import time
+import wave
 
 import cv2
 import numpy as np
 import pytesseract
-import pyttsx3
 from PIL import Image
 
 import gi
@@ -30,6 +33,7 @@ import dbus  # noqa: E402
 import dbus.mainloop.glib  # noqa: E402
 
 TOKEN_FILE = os.path.expanduser("~/.cache/quest-reader/restore-token")
+VOICES = pathlib.Path(os.path.expanduser("~/.local/share/piper-voices"))
 
 # La bulle est un aplat gris neutre ; le décor du jeu est coloré.
 MAX_CHANNEL_SPREAD = 12
@@ -138,21 +142,22 @@ def clean(text):
     text = re.sub(r"\s*\n\s*", " ", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
 
-    # Les icônes de la bulle produisent un préfixe parasite instable d'une
-    # image à l'autre : des fragments courts, souvent mêlés de symboles.
-    # Le dialogue commence par un vrai mot, donc on démarre là.
-    # Les icônes et bordures de la bulle laissent des fragments courts,
-    # instables d'une image à l'autre, collés au début et à la fin. Ils
-    # imitent des mots, donc on ancre plutôt sur la phrase elle-même :
-    # elle ouvre sur une majuscule et se ferme sur une ponctuation.
-    # Ces fragments sont des lettres isolées ; une phrase, elle, enchaîne
-    # au moins deux mots.
-    start = re.search(r"[A-Za-zÀ-ÿ'’-]{3,}[,;:]?\s+[A-Za-zÀ-ÿ'’-]{2,}", text)
+    # Les icônes et bordures de la bulle laissent des fragments de lettres
+    # isolées, collés au début et à la fin, et instables d'une image à
+    # l'autre. Une vraie phrase, elle, enchaîne au moins deux mots ; une
+    # didascalie ouvre sur un astérisque.
+    start = re.search(
+        r"\*\s*[A-Za-zÀ-ÿ]|[A-Za-zÀ-ÿ'’-]{3,}[,;:]?\s+[A-Za-zÀ-ÿ'’-]{2,}", text
+    )
     if start:
         text = text[start.start() :]
-    # La fin doit suivre un vrai mot : une ponctuation isolée en queue
-    # ("\\ ; .") appartient encore au bruit de bordure.
-    ends = list(re.finditer(r"[A-Za-zÀ-ÿ0-9’'][.!?…]+", text))
+
+    # La fin suit un vrai mot ou ferme une didascalie ; une ponctuation
+    # isolée en queue ("\\ ; .") relève encore du bruit.
+    # Le français place une espace avant « ? » et « ! » : on l'accepte.
+    ends = list(
+        re.finditer(r"[A-Za-zÀ-ÿ0-9’'](?:\s?[.!?…]+|\s*\*)", text)
+    )
     if ends:
         text = text[: ends[-1].end()]
     return text.strip()
@@ -170,30 +175,60 @@ def fingerprint(text):
     return hashlib.sha1(core.encode()).hexdigest()
 
 
+def split_narration(text):
+    """Découpe le texte en segments (est_narration, contenu).
+
+    Les jeux notent les actions entre astérisques — « * se racle la gorge * »
+    — et on les prononce avec une autre voix que la parole du PNJ.
+    """
+    segments = []
+    for index, part in enumerate(re.split(r"\*([^*]+)\*", text)):
+        part = part.strip(" *")
+        if part:
+            segments.append((index % 2 == 1, part))
+    return segments
+
+
 class Speaker(threading.Thread):
-    """Lit dans un thread pour ne pas bloquer la capture."""
+    """Synthétise dans un thread pour ne pas bloquer la capture.
+
+    Piper produit une voix nettement plus naturelle qu'espeak-ng, au prix
+    d'un modèle à charger. Les deux voix sont chargées une fois pour toutes.
+    """
 
     daemon = True
 
-    def __init__(self, rate, voice):
+    def __init__(self, voices, speed):
         super().__init__()
         self.queue = queue.Queue()
-        self.rate = rate
-        self.voice = voice
+        self.paths = voices
+        self.speed = speed
 
     def run(self):
-        engine = pyttsx3.init()
-        engine.setProperty("voice", self.voice)
-        engine.setProperty("rate", self.rate)
+        from piper import PiperVoice, SynthesisConfig
+
+        config = SynthesisConfig(length_scale=self.speed)
+        voices = {kind: PiperVoice.load(path) for kind, path in self.paths.items()}
         while True:
-            text = self.queue.get()
-            if text is None:
+            segments = self.queue.get()
+            if segments is None:
                 return
-            engine.say(text)
-            engine.runAndWait()
+            for narration, part in segments:
+                voice = voices["narration" if narration else "dialogue"]
+                self.play(voice, part, config)
+
+    def play(self, voice, text, config):
+        with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
+            with wave.open(handle.name, "wb") as output:
+                voice.synthesize_wav(text, output, syn_config=config)
+            subprocess.run(
+                ["paplay", handle.name],
+                check=False,
+                stderr=subprocess.DEVNULL,
+            )
 
     def say(self, text):
-        self.queue.put(text)
+        self.queue.put(split_narration(text))
 
 
 class ScreenCast:
@@ -295,7 +330,9 @@ class ScreenCast:
 class Reader:
     def __init__(self, args):
         self.args = args
-        self.speaker = Speaker(args.rate, args.voice)
+        self.speaker = Speaker(
+            {"dialogue": args.voice, "narration": args.narration_voice}, args.speed
+        )
         self.speaker.start()
         self.last_hash = None
         self.last_seen = 0.0
@@ -370,8 +407,20 @@ class Reader:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rate", type=int, default=165, help="vitesse de lecture")
-    parser.add_argument("--voice", default="roa/fr", help="voix espeak-ng")
+    parser.add_argument(
+        "--voice", default=str(VOICES / "fr_FR-tom-medium.onnx"), help="voix du PNJ"
+    )
+    parser.add_argument(
+        "--narration-voice",
+        default=str(VOICES / "fr_FR-siwis-medium.onnx"),
+        help="voix des actions entre astérisques",
+    )
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="durée de la parole : au-dessus de 1, plus lent",
+    )
     parser.add_argument("--fps", type=int, default=2, help="images analysées par seconde")
     parser.add_argument(
         "--repeat-after",

@@ -13,7 +13,10 @@ Testé sur CachyOS / KDE Plasma en Wayland.
 ```bash
 sudo pacman -S --needed tesseract tesseract-data-fra
 python -m venv --system-site-packages .venv
-.venv/bin/pip install numpy opencv-python-headless pytesseract pyttsx3
+.venv/bin/pip install numpy opencv-python-headless pytesseract piper-tts
+
+mkdir -p ~/.local/share/piper-voices && cd ~/.local/share/piper-voices
+python -m piper.download_voices fr_FR-tom-medium fr_FR-siwis-medium
 ```
 
 Le `--system-site-packages` est nécessaire : la capture d'écran passe par
@@ -32,11 +35,21 @@ Options utiles :
 
 | Option | Effet | Défaut |
 |---|---|---|
-| `--rate` | vitesse de lecture | `165` |
-| `--voice` | voix espeak-ng | `roa/fr` |
+| `--voice` | voix du PNJ | `fr_FR-tom-medium` |
+| `--narration-voice` | voix des actions entre astérisques | `fr_FR-siwis-medium` |
+| `--speed` | durée de la parole : au-dessus de 1, plus lent | `1.0` |
 | `--fps` | images analysées par seconde | `2` |
 | `--repeat-after` | délai avant de relire un dialogue identique | `30` s |
 | `--test IMAGE` | teste la détection sur une capture, sans lecture | — |
+
+### Deux voix
+
+Les actions écrites entre astérisques — `* se racle la gorge *` — sont dites
+par une seconde voix, pour les distinguer de la parole du PNJ.
+
+La synthèse passe par Piper, un moteur neuronal local. Il sonne bien plus
+naturel qu'espeak-ng, utilisé au départ, qui synthétise par formants et
+donne une voix métallique.
 
 ## Fonctionnement
 
