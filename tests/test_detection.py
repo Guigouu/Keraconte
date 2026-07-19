@@ -14,7 +14,14 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader import clean, find_dialog, fingerprint, split_narration  # noqa: E402
+from quest_reader import (  # noqa: E402
+    clean,
+    find_dialog,
+    fingerprint,
+    pronounce,
+    split_narration,
+    split_sentences,
+)
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -139,3 +146,27 @@ def test_clean_accepte_l_espace_avant_la_ponctuation():
 )
 def test_separe_narration_et_dialogue(texte, attendu):
     assert split_narration(texte) == attendu
+
+
+@pytest.mark.parametrize("ecrit", ["Pssst", "Psst", "Pst", "PSSST"])
+def test_onomatopee_recoit_une_voyelle(ecrit):
+    """Sans voyelle, les moteurs épellent l'onomatopée lettre à lettre."""
+    assert pronounce(f"{ecrit}, approche-toi.") == "Pssit, approche-toi."
+
+
+@pytest.mark.parametrize("mot", ["Post", "Pas", "Peste", "poste"])
+def test_prononciation_ne_touche_pas_les_vrais_mots(mot):
+    assert pronounce(f"Le {mot} est là.") == f"Le {mot} est là."
+
+
+def test_decoupe_en_phrases():
+    texte = "Bonjour. Comment vas-tu ? Très bien !"
+    assert split_sentences(texte) == [
+        "Bonjour.",
+        "Comment vas-tu ?",
+        "Très bien !",
+    ]
+
+
+def test_decoupe_garde_les_points_de_suspension():
+    assert split_sentences("Attends… J'arrive.") == ["Attends…", "J'arrive."]

@@ -34,6 +34,13 @@ import dbus.mainloop.glib  # noqa: E402
 
 TOKEN_FILE = os.path.expanduser("~/.cache/quest-reader/restore-token")
 VOICES = pathlib.Path(os.path.expanduser("~/.local/share/piper-voices"))
+KOKORO_DIR = pathlib.Path(os.path.expanduser("~/.local/share/kokoro"))
+KOKORO_MODEL = KOKORO_DIR / "kokoro.onnx"
+KOKORO_VOICES = KOKORO_DIR / "voices.bin"
+
+# Réécritures appliquées avant la synthèse seulement. Sans voyelle, les
+# moteurs épellent l'onomatopée lettre à lettre.
+PRONUNCIATION = [(r"\bPs+t\b", "Pssit")]
 
 # La bulle est un aplat gris neutre ; le décor du jeu est coloré.
 MAX_CHANNEL_SPREAD = 12
@@ -189,43 +196,110 @@ def split_narration(text):
     return segments
 
 
+def pronounce(text):
+    """Réécrit ce qui se prononce mal, sans toucher au texte affiché.
+
+    Les synthétiseurs épellent les onomatopées dépourvues de voyelle :
+    « Pssst » sort en « p-s-s-s-t ». Ajouter une voyelle suffit à les
+    faire prononcer, en gardant la sonorité sifflante.
+    """
+    for pattern, replacement in PRONUNCIATION:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
+
+def split_sentences(text):
+    """Découpe en phrases, ponctuation comprise."""
+    parts = re.findall(r"[^.!?…]+[.!?…]*", text)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def play_wave(path):
+    subprocess.run(["paplay", path], check=False, stderr=subprocess.DEVNULL)
+
+
+class PiperEngine:
+    """Voix masculine, rapide, mais qui marque mal la ponctuation.
+
+    D'où le découpage : chaque phrase est synthétisée à part, puis suivie
+    d'un silence. Laisser Piper lire un paragraphe entier donne un débit
+    sans respiration.
+    """
+
+    def __init__(self, voices, speed, pause):
+        from piper import PiperVoice, SynthesisConfig
+
+        self.config = SynthesisConfig(length_scale=speed)
+        self.voices = {kind: PiperVoice.load(path) for kind, path in voices.items()}
+        self.pause = pause
+
+    def speak(self, text, narration):
+        voice = self.voices["narration" if narration else "dialogue"]
+        for sentence in split_sentences(pronounce(text)):
+            with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
+                with wave.open(handle.name, "wb") as output:
+                    voice.synthesize_wav(sentence, output, syn_config=self.config)
+                play_wave(handle.name)
+            time.sleep(self.pause / 1000)
+
+
+class KokoroEngine:
+    """Respecte mieux la ponctuation, mais n'a qu'une voix française.
+
+    Faute d'une seconde voix, les didascalies se distinguent par un débit
+    plus lent. Le modèle tourne sur le processeur : la carte graphique est
+    réservée au jeu.
+    """
+
+    VOICE = "ff_siwis"
+    NARRATION_SLOWDOWN = 0.85
+
+    def __init__(self, speed):
+        from kokoro_onnx import Kokoro
+
+        self.kokoro = Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
+        self.speed = speed
+
+    def speak(self, text, narration):
+        import soundfile
+
+        speed = 1 / self.speed
+        if narration:
+            speed *= self.NARRATION_SLOWDOWN
+        samples, rate = self.kokoro.create(
+            pronounce(text), voice=self.VOICE, lang="fr-fr", speed=speed
+        )
+        with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
+            soundfile.write(handle.name, samples, rate)
+            play_wave(handle.name)
+
+
 class Speaker(threading.Thread):
     """Synthétise dans un thread pour ne pas bloquer la capture.
 
-    Piper produit une voix nettement plus naturelle qu'espeak-ng, au prix
-    d'un modèle à charger. Les deux voix sont chargées une fois pour toutes.
+    Le moteur est construit ici, et non par l'appelant : charger un modèle
+    prend du temps, et ce fil est justement celui qui peut attendre.
     """
 
     daemon = True
 
-    def __init__(self, voices, speed):
+    def __init__(self, build_engine):
         super().__init__()
         self.queue = queue.Queue()
-        self.paths = voices
-        self.speed = speed
+        self.build_engine = build_engine
 
     def run(self):
-        from piper import PiperVoice, SynthesisConfig
-
-        config = SynthesisConfig(length_scale=self.speed)
-        voices = {kind: PiperVoice.load(path) for kind, path in self.paths.items()}
+        engine = self.build_engine()
         while True:
             segments = self.queue.get()
             if segments is None:
                 return
             for narration, part in segments:
-                voice = voices["narration" if narration else "dialogue"]
-                self.play(voice, part, config)
-
-    def play(self, voice, text, config):
-        with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
-            with wave.open(handle.name, "wb") as output:
-                voice.synthesize_wav(text, output, syn_config=config)
-            subprocess.run(
-                ["paplay", handle.name],
-                check=False,
-                stderr=subprocess.DEVNULL,
-            )
+                try:
+                    engine.speak(part, narration)
+                except Exception as error:
+                    # Mieux vaut un dialogue amputé qu'une partie interrompue.
+                    print(f"synthèse impossible : {error}", file=sys.stderr)
 
     def say(self, text):
         self.queue.put(split_narration(text))
@@ -330,9 +404,7 @@ class ScreenCast:
 class Reader:
     def __init__(self, args):
         self.args = args
-        self.speaker = Speaker(
-            {"dialogue": args.voice, "narration": args.narration_voice}, args.speed
-        )
+        self.speaker = Speaker(lambda: build_engine(args))
         self.speaker.start()
         self.last_hash = None
         self.last_seen = 0.0
@@ -405,6 +477,16 @@ class Reader:
                 self.pipeline.set_state(Gst.State.NULL)
 
 
+def build_engine(args):
+    if args.engine == "kokoro":
+        return KokoroEngine(args.speed)
+    return PiperEngine(
+        {"dialogue": args.voice, "narration": args.narration_voice},
+        args.speed,
+        args.pause,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -418,8 +500,20 @@ def main():
     parser.add_argument(
         "--speed",
         type=float,
-        default=1.0,
+        default=1.05,
         help="durée de la parole : au-dessus de 1, plus lent",
+    )
+    parser.add_argument(
+        "--engine",
+        choices=("piper", "kokoro"),
+        default="piper",
+        help="moteur de synthèse",
+    )
+    parser.add_argument(
+        "--pause",
+        type=int,
+        default=320,
+        help="silence entre deux phrases, en millisecondes (piper)",
     )
     parser.add_argument("--fps", type=int, default=2, help="images analysées par seconde")
     parser.add_argument(

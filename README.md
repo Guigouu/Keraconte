@@ -35,21 +35,56 @@ Options utiles :
 
 | Option | Effet | Défaut |
 |---|---|---|
-| `--voice` | voix du PNJ | `fr_FR-tom-medium` |
-| `--narration-voice` | voix des actions entre astérisques | `fr_FR-siwis-medium` |
-| `--speed` | durée de la parole : au-dessus de 1, plus lent | `1.0` |
+| `--engine` | moteur de synthèse : `piper` ou `kokoro` | `piper` |
+| `--voice` | voix du PNJ (piper) | `fr_FR-tom-medium` |
+| `--narration-voice` | voix des didascalies (piper) | `fr_FR-siwis-medium` |
+| `--speed` | durée de la parole : au-dessus de 1, plus lent | `1.05` |
+| `--pause` | silence entre deux phrases, en ms (piper) | `320` |
 | `--fps` | images analysées par seconde | `2` |
 | `--repeat-after` | délai avant de relire un dialogue identique | `30` s |
 | `--test IMAGE` | teste la détection sur une capture, sans lecture | — |
 
+### Deux moteurs
+
+Aucun des deux ne l'emporte partout : à essayer selon ce qu'on préfère
+entendre.
+
+| | Piper (défaut) | Kokoro |
+|---|---|---|
+| Voix | masculine | féminine — seule voix FR du modèle |
+| Latence (CPU) | 0,26 s | 1,51 s |
+| Modèle | 63 Mo | 310 Mo |
+| Ponctuation | pauses ajoutées par le programme | respectée nativement |
+| Timbre | plus naturel | un peu robotique |
+
+```bash
+.venv/bin/python quest_reader.py --engine kokoro
+```
+
+Kokoro tourne sur le processeur, à dessein : la carte graphique reste
+disponible pour le jeu.
+
+Installation, si l'on veut l'essayer :
+
+```bash
+.venv/bin/pip install kokoro-onnx soundfile
+mkdir -p ~/.local/share/kokoro && cd ~/.local/share/kokoro
+base=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
+curl -L -o kokoro.onnx $base/kokoro-v1.0.onnx
+curl -L -o voices.bin $base/voices-v1.0.bin
+```
+
 ### Deux voix
 
 Les actions écrites entre astérisques — `* se racle la gorge *` — sont dites
-par une seconde voix, pour les distinguer de la parole du PNJ.
+autrement que la parole du PNJ : par une seconde voix avec Piper, et par un
+débit ralenti avec Kokoro, qui n'a qu'une voix française.
 
-La synthèse passe par Piper, un moteur neuronal local. Il sonne bien plus
-naturel qu'espeak-ng, utilisé au départ, qui synthétise par formants et
-donne une voix métallique.
+### Onomatopées
+
+Sans voyelle, les synthétiseurs épellent : « Pssst » sort en « p-s-s-s-t ».
+Une table de réécriture corrige la prononciation avant la synthèse. Le texte
+affiché, lui, reste celui du jeu.
 
 ## Fonctionnement
 
