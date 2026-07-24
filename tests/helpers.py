@@ -96,7 +96,7 @@ def images(reader, textes, bulle_presente=False):
     """
     for texte in textes:
         frame = ecran(texte is not None or bulle_presente)
-        with mock.patch("quest_reader._legacy.find_dialog", return_value=texte):
+        with mock.patch("quest_reader.reader.find_dialog", return_value=texte):
             reader.handle(frame)
     return [appel.args[0] for appel in reader.speaker.say.call_args_list]
 
@@ -199,3 +199,20 @@ def faux_xtts(rendus):
         "TTS": tts_module,
         "TTS.api": api,
     }, pu
+
+
+# Relevé en jeu chez Djaul. L'OCR permute parfois les lignes, quand l'image
+# est saisie pendant un rafraîchissement de la bulle.
+HERCULE = (
+    "Le commanditaire est peut-être un collectionneur, un sorcier, un mage "
+    "artisan ou encore un alchimiste. Dans ce cas, il doit y avoir des rumeurs "
+    "circulant sur l'achat de la relique au marché noir. Pars en discuter avec "
+    "Hercule Poivrot à la taverne de Djaul, c'est un espion de l'Ordre de "
+    "l'Œil Putride."
+)
+HERCULE_PERMUTE = (
+    "espion de l'Ordre de l'Œil Putride. Le commanditaire est peut-être un "
+    "collectionneur, un sorcier, un mage artisan ou encore un alchimiste. Dans "
+    "ce cas, il doit y avoir des rumeurs circulant sur l'achat de la relique "
+    "au marché noir."
+)
