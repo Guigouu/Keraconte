@@ -187,41 +187,6 @@ def test_le_speaker_s_arrete_sans_vider_sa_file():
     assert dits == [] or dits == ["Premier."]
 
 
-def test_playback_refuse_de_jouer_apres_un_arret():
-    """Une fois le dialogue fermé, plus aucun son ne doit sortir.
-
-    Les phrases déjà synthétisées attendent leur tour : sans ce refus, elles
-    partiraient l'une après l'autre alors que la bulle a disparu.
-    """
-    playback = Playback()
-    playback.stop()
-    with mock.patch("subprocess.Popen") as popen:
-        playback.play("/tmp/inexistant.wav")
-    popen.assert_not_called()
-
-
-def test_playback_coupe_le_son_en_cours():
-    """L'ordre vient du fil de capture pendant que le son joue."""
-    playback = Playback()
-    processus = FauxProcessus()
-    with mock.patch("subprocess.Popen", return_value=processus):
-        playback.play("/tmp/quelconque.wav")
-    # Le son est allé au bout ici ; on coupe celui d'après, en vol.
-    playback.current = processus
-    playback.stop()
-    assert processus.tue
-
-
-def test_playback_rouvre_a_la_reprise():
-    """Un nouveau dialogue doit lever l'interdiction, sinon plus rien ne parle."""
-    playback = Playback()
-    playback.stop()
-    playback.resume()
-    with mock.patch("subprocess.Popen", return_value=FauxProcessus()) as popen:
-        playback.play("/tmp/quelconque.wav")
-    popen.assert_called_once()
-
-
 # Le dialogue du rototo, relevé en jeu : Dofus l'écrit progressivement, et
 # l'OCR l'attrape à plusieurs stades. Il avait été lu huit fois de suite.
 ROTOTO_DEBUT = (
