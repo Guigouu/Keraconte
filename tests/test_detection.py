@@ -17,22 +17,14 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader import (  # noqa: E402
-    Playback,
-    Reader,
-    Speaker,
-    clean,
+from quest_reader import Reader, Speaker  # noqa: E402
+from quest_reader.detection import (  # noqa: E402
     drop_replies,
     find_dialog,
     keep_word,
-    pronounce,
     reads_like_dialogue,
-    same_dialog,
-    speakable,
-    split_narration,
-    strip_choices,
-    split_sentences,
 )
+from quest_reader.text import clean, same_dialog  # noqa: E402
 from tests.helpers import (  # noqa: E402
     BRAKMAR,
     CLIQUETIS,
