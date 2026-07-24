@@ -12,6 +12,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from quest_reader.engines import build_engine, check_xtts  # noqa: E402
 from quest_reader.engines.piper import PiperEngine  # noqa: E402
 from quest_reader.engines.xtts import XttsEngine, voice_argument  # noqa: E402
+from quest_reader.playback import playback  # noqa: E402
 from tests.helpers import faux_xtts  # noqa: E402
 
 
@@ -71,8 +72,12 @@ def test_xtts_decoupe_par_phrases_et_choisit_la_voix():
         moteur = XttsEngine(
             {"dialogue": "pnj.wav", "narration": "didascalie.wav"}, 1.15
         )
-        moteur.speak("Bienvenue ! Approche-toi.", narration=False)
-        moteur.speak("se racle la gorge", narration=True)
+        moteur.speak(
+            "Bienvenue ! Approche-toi.", narration=False, generation=playback.generation
+        )
+        moteur.speak(
+            "se racle la gorge", narration=True, generation=playback.generation
+        )
 
     appels = rendus["appels"]
     assert [appel["text"] for appel in appels] == [
@@ -101,7 +106,7 @@ def test_xtts_ne_synthetise_pas_un_segment_vide():
     modules, _ = faux_xtts(rendus)
     with mock.patch.dict(sys.modules, modules):
         moteur = XttsEngine({"dialogue": "a", "narration": "b"}, 1.0)
-        moteur.speak("...", narration=False)
+        moteur.speak("...", narration=False, generation=playback.generation)
 
     assert rendus.get("appels", []) == []
 

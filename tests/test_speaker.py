@@ -6,6 +6,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from quest_reader.playback import playback  # noqa: E402
 from quest_reader.speaker import Speaker  # noqa: E402
 
 
@@ -20,7 +21,7 @@ def test_le_speaker_s_arrete_sans_vider_sa_file():
     dits = []
 
     class MoteurFactice:
-        def speak(self, texte, narration):
+        def speak(self, texte, narration, generation):
             dits.append(texte)
 
     speaker = Speaker(MoteurFactice)
@@ -65,3 +66,22 @@ def test_say_ne_bloque_pas_le_fil_de_capture():
     debut = time.monotonic()
     speaker.say("Celle-ci est de trop.")
     assert time.monotonic() - debut < 0.5
+
+
+def test_un_nouveau_dialogue_coupe_le_precedent():
+    """say(B) pendant la lecture de A coupe A et n'empile pas.
+
+    On n'a pas besoin de démarrer le thread : on éprouve l'effet de say sur
+    la file et la génération de l'instance module « playback ».
+    """
+
+    class MoteurFactice:
+        def speak(self, texte, narration, generation):
+            pass
+
+    speaker = Speaker(MoteurFactice)
+    g0 = playback.generation
+    speaker.say("Dialogue A.")
+    speaker.say("Dialogue B.")
+    assert speaker.queue.qsize() <= 1     # BACKLOG = 1, pas d'empilement
+    assert playback.generation > g0       # chaque say ouvre une génération

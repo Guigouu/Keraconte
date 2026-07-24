@@ -26,7 +26,7 @@ class KokoroEngine(Engine):
         self.kokoro = Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
         self.speed = speed
 
-    def speak(self, text, narration):
+    def speak(self, text, narration, generation):
         import soundfile
 
         spoken = pronounce(text)
@@ -41,4 +41,4 @@ class KokoroEngine(Engine):
         )
         with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
             soundfile.write(handle.name, samples, rate)
-            play_wave(handle.name)
+            play_wave(handle.name, generation)

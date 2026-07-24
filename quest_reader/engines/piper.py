@@ -26,16 +26,16 @@ class PiperEngine(Engine):
         self.voices = {kind: PiperVoice.load(path) for kind, path in voices.items()}
         self.pause = pause
 
-    def speak(self, text, narration):
+    def speak(self, text, narration, generation):
         voice = self.voices["narration" if narration else "dialogue"]
         for sentence in split_sentences(pronounce(text)):
             # Le découpage isole parfois une ponctuation seule (« Ah… ! »).
             if not speakable(sentence):
                 continue
-            if playback.stopped:  # dialogue fermé en cours de réplique
+            if generation != playback.generation:  # nouveau dialogue survenu
                 return
             with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
                 with wave.open(handle.name, "wb") as output:
                     voice.synthesize_wav(sentence, output, syn_config=self.config)
-                play_wave(handle.name)
+                play_wave(handle.name, generation)
             time.sleep(self.pause / 1000)

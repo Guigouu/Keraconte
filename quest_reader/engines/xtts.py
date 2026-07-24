@@ -79,7 +79,7 @@ class XttsEngine(Engine):
             **voice_argument(sample),
         )
 
-    def speak(self, text, narration):
+    def speak(self, text, narration, generation):
         """Synthétise la phrase suivante pendant que la précédente se joue.
 
         « play_wave » bloque, et XTTS met environ une seconde et demie par
@@ -101,9 +101,9 @@ class XttsEngine(Engine):
             ]
             avance = None
             for position, sentence in enumerate(sentences):
-                # Inutile d'occuper la carte pour un dialogue déjà fermé :
+                # Inutile d'occuper la carte pour un dialogue déjà périmé :
                 # « Playback » refuserait de jouer le résultat.
-                if playback.stopped:
+                if generation != playback.generation:
                     break
                 if avance is None:
                     self.render(sentence, sample, files[position].name)
@@ -117,4 +117,4 @@ class XttsEngine(Engine):
                     if suivante < len(sentences)
                     else None
                 )
-                play_wave(files[position].name)
+                play_wave(files[position].name, generation)
