@@ -99,19 +99,26 @@ def test_les_reponses_du_joueur_ne_sont_pas_dites():
 
 
 def test_une_bulle_absente_une_seule_image_ne_coupe_pas():
-    """Un fondu ou une fenêtre qui passe devant ne doit pas hacher la lecture."""
+    """Une image absente isolée ne coupe pas : le seuil est de deux."""
     reader = lecteur_nu(last_text="Bonjour, aventurier.")
-    images(reader, [None] * (Reader.CLOSED_AFTER - 1))
+    images(reader, [None])
     reader.speaker.silence.assert_not_called()
+
+
+def test_deux_images_absentes_coupent():
+    """Le seuil de coupure est de deux images sans bulle."""
+    reader = lecteur_nu(last_text="Bonjour, aventurier.")
+    images(reader, [None, None])
+    reader.speaker.silence.assert_called_once()
 
 
 def test_la_bulle_fermee_coupe_la_dictee():
     """Après assez d'images sans bulle, la voix s'arrête et la file se vide."""
     reader = lecteur_nu(last_text="Bonjour, aventurier.")
-    images(reader, [None] * Reader.CLOSED_AFTER)
+    images(reader, [None] * 2)
 
     reader.speaker.silence.assert_called_once()
-    # Le texte reste en mémoire : trois images sans lecture ne prouvent pas
+    # Le texte reste en mémoire : deux images sans lecture ne prouvent pas
     # que la bulle a été fermée, et l'oublier faisait tout relire au retour.
     assert reader.last_text == "Bonjour, aventurier."
 
@@ -125,7 +132,7 @@ def test_un_ocr_qui_rate_quelques_images_ne_fait_pas_relire():
     """
     reader = lecteur_nu()
     texte = "Tu veux savoir pourquoi je rigole ? Donne-moi 5 kamas."
-    trou = [None] * Reader.CLOSED_AFTER
+    trou = [None] * 2
     lus = images(reader, [texte] * 2 + trou + [texte] * 2 + trou + [texte] * 2)
     assert lus == [clean(texte)]
 
@@ -147,7 +154,7 @@ def test_la_bulle_qui_quitte_l_ecran_coupe_toujours():
     """La tolérance ci-dessus ne doit pas désarmer la coupure elle-même."""
     reader = lecteur_nu()
     texte = "Tu ne vois pas que je suis en patrouille ?"
-    images(reader, [texte] * 2 + [None] * Reader.CLOSED_AFTER)
+    images(reader, [texte] * 2 + [None] * 2)
     reader.speaker.silence.assert_called_once()
 
 
@@ -158,20 +165,19 @@ def test_rouvrir_le_dialogue_plus_tard_le_relit():
     lus = images(reader, [texte] * 2)
     # Le joueur revient bien après le délai de relecture.
     reader.last_seen -= reader.args.repeat_after + 1
-    lus = images(reader, [None] * Reader.CLOSED_AFTER + [texte] * 2)
+    lus = images(reader, [None] * 2 + [texte] * 2)
     assert len(lus) == 2
 
 
 def test_la_coupure_n_est_ordonnee_qu_une_fois():
     """Rester devant un écran sans bulle ne doit pas marteler « silence »."""
     reader = lecteur_nu()
-    images(reader, [None] * (Reader.CLOSED_AFTER * 4))
+    images(reader, [None] * 8)
     reader.speaker.silence.assert_called_once()
 
 
 def test_une_bulle_qui_revient_annule_le_decompte():
-    """Deux images sans bulle puis une avec : rien ne doit être coupé."""
+    """Une image sans bulle puis une avec : le décompte repart de zéro."""
     reader = lecteur_nu()
-    manquantes = [None] * (Reader.CLOSED_AFTER - 1)
-    images(reader, manquantes + ["Me revoilà."] + manquantes)
+    images(reader, [None] + ["Me revoilà."] + [None])
     reader.speaker.silence.assert_not_called()

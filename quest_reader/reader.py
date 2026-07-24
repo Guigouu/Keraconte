@@ -23,12 +23,10 @@ from quest_reader.speaker import Speaker  # noqa: E402
 from quest_reader.text import clean, clearest, same_dialog  # noqa: E402
 
 
-class Reader:
-    # Images consécutives sans bulle avant de tenir le dialogue pour fermé.
-    # À --fps 2, cela laisse une seconde et demie : assez pour absorber une
-    # disparition passagère, assez court pour que la coupure suive le geste.
-    CLOSED_AFTER = 3
+CLOSED_AFTER = 2  # images sans bulle avant de couper la voix
 
+
+class Reader:
     def __init__(self, args):
         self.args = args
         self.speaker = Speaker(lambda: build_engine(args))
@@ -91,11 +89,13 @@ class Reader:
             boxes, _ = find_bubbles(frame)
             if boxes:
                 return
-            # La bulle disparaît parfois une image sans que le joueur ait
-            # rien fermé — fondu, fenêtre qui passe devant. Couper au premier
-            # trou hacherait la lecture, d'où le comptage.
+            # Deux images sans bulle avant de couper. À --fps 4 cela fait une
+            # demi-seconde : assez pour absorber un raté de détection isolé
+            # (find_bubbles peut manquer une image sous bruit fort), assez
+            # court pour suivre le geste de fermeture. L'égalité fait couper
+            # une seule fois, pas à chaque image absente au-delà.
             self.missing += 1
-            if self.missing == self.CLOSED_AFTER:
+            if self.missing == CLOSED_AFTER:
                 self.speaker.silence()
                 # « last_text » survit exprès. Trois images sans bulle ne
                 # prouvent pas que le joueur a fermé quoi que ce soit, et
