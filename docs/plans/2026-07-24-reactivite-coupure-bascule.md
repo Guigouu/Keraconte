@@ -4,7 +4,7 @@
 
 **Goal:** Couper la voix sous 0,5 s à la fermeture du dialogue, et basculer immédiatement au dialogue suivant.
 
-**Architecture:** Deux changements indépendants dans `quest_reader.py`. (A) La coupure repose déjà sur `find_bubbles` (couleur, sans OCR) ; on retire le compteur `CLOSED_AFTER` au profit d'un seuil de 2 images et on monte `--fps` à 4. (B) `Speaker` passe d'une file d'attente (`BACKLOG=4`) à une bascule immédiate : `say` purge la file et coupe le son, et un compteur de génération élimine la course sur le booléen `stopped`.
+**Architecture:** Deux changements indépendants, désormais répartis dans le package `quest_reader/`. (A) La coupure repose déjà sur `find_bubbles` (couleur, sans OCR) ; on retire le compteur `CLOSED_AFTER` (`quest_reader/reader.py`, classe `Reader`) au profit d'un seuil de 2 images et on monte `--fps` à 4 (`quest_reader/__main__.py`). (B) `Speaker` (`quest_reader/speaker.py`) passe d'une file d'attente (`BACKLOG=4`) à une bascule immédiate : `say` purge la file et coupe le son, et un compteur de génération, dans `Playback` (`quest_reader/playback.py`), élimine la course sur le booléen `stopped`.
 
 **Tech Stack:** Python 3.14, pytest, OpenCV, threading/queue, pytesseract. Venv en `.venv/`.
 
@@ -21,8 +21,8 @@
 ### Task A1 : Retirer `CLOSED_AFTER`, couper après 2 images sans bulle
 
 **Files:**
-- Modify: `quest_reader.py` — classe `Reader` (`CLOSED_AFTER` l.939, `handle` l.1006-1015)
-- Test: `tests/test_detection.py`
+- Modify: `quest_reader/reader.py` — classe `Reader` (constante `CLOSED_AFTER`, méthode `handle`, branche « bulle absente »)
+- Test: `tests/test_reader.py`
 
 **Contexte.** Aujourd'hui `handle` compte `self.missing` et coupe quand
 `self.missing == self.CLOSED_AFTER` (== 3). On remplace le constante de classe
@@ -30,23 +30,22 @@ par un seuil littéral de 2, en gardant l'égalité (déclenche une seule fois).
 
 **Step 1 : Écrire les tests qui reflètent la nouvelle spec**
 
-Dans `tests/test_detection.py`, **supprimer** les deux tests dont l'intention
+Dans `tests/test_reader.py`, **supprimer** les deux tests dont l'intention
 est désormais inversée ou vide :
-- `test_une_bulle_absente_une_seule_image_ne_coupe_pas` (l.513) — une image
+- `test_une_bulle_absente_une_seule_image_ne_coupe_pas` — une image
   absente NE coupe pas : reste vrai avec seuil 2, mais réécrit ci-dessous pour
   être explicite plutôt que dépendre de `CLOSED_AFTER`.
-- `test_une_bulle_qui_revient_annule_le_decompte` (l.584) — teste un décompte
+- `test_une_bulle_qui_revient_annule_le_decompte` — teste un décompte
   qui existe encore (seuil 2), à réécrire sans `CLOSED_AFTER`.
 
 Remplacer **toutes** les occurrences de `Reader.CLOSED_AFTER` par le littéral
-correspondant au nouveau seuil. Les sites (mesurés) :
-- l.516 `[None] * (Reader.CLOSED_AFTER - 1)` → `[None] * 1`
-- l.523 `[None] * Reader.CLOSED_AFTER` → `[None] * 2`
-- l.540 `trou = [None] * Reader.CLOSED_AFTER` → `trou = [None] * 2`
-- l.562 `[None] * Reader.CLOSED_AFTER` → `[None] * 2`
-- l.573 `[None] * Reader.CLOSED_AFTER` → `[None] * 2`
-- l.580 `[None] * (Reader.CLOSED_AFTER * 4)` → `[None] * 8`
-- l.587 `manquantes = [None] * (Reader.CLOSED_AFTER - 1)` → `[None] * 1`
+correspondant au nouveau seuil (les repérer :
+`grep -n "Reader.CLOSED_AFTER" tests/test_reader.py`) :
+- `[None] * (Reader.CLOSED_AFTER - 1)` → `[None] * 1`
+- `[None] * Reader.CLOSED_AFTER` → `[None] * 2`
+- `trou = [None] * Reader.CLOSED_AFTER` → `trou = [None] * 2`
+- `[None] * (Reader.CLOSED_AFTER * 4)` → `[None] * 8`
+- `manquantes = [None] * (Reader.CLOSED_AFTER - 1)` → `[None] * 1`
 
 Réécrire les deux tests supprimés en versions explicites :
 
@@ -74,7 +73,7 @@ def test_une_bulle_qui_revient_annule_le_decompte():
 
 **Step 2 : Lancer les tests, vérifier qu'ils échouent franchement**
 
-Run: `.venv/bin/python -m pytest tests/test_detection.py -q 2>&1 | tail -20`
+Run: `.venv/bin/python -m pytest tests/test_reader.py -q 2>&1 | tail -20`
 Expected: FAIL. **Plusieurs** tests échouent, c'est normal : le code coupe
 encore à 3 images alors que les tests attendent désormais 2. En particulier
 `test_deux_images_absentes_coupent` (silence non appelé après 2 images) et
@@ -83,10 +82,10 @@ Voir du rouge ici est le signe que la spec a bien bougé — continuer.
 
 **Step 3 : Retirer le compteur, seuil littéral 2**
 
-Dans `quest_reader.py`, classe `Reader` : **supprimer** la constante
-`CLOSED_AFTER = 3` et son commentaire (l.936-939).
+Dans `quest_reader/reader.py`, classe `Reader` : **supprimer** la constante
+de classe `CLOSED_AFTER = 3` et son commentaire.
 
-Dans `handle`, remplacer le bloc l.1006-1007 :
+Dans `handle`, remplacer le bloc :
 
 ```python
             self.missing += 1
@@ -105,8 +104,8 @@ par (le commentaire ci-dessous remplace celui de la constante retirée) :
             if self.missing == CLOSED_AFTER:
 ```
 
-Ajouter la constante au niveau module, près des autres seuils (chercher un
-groupe de constantes en haut de fichier, p. ex. après `MIN_CHARS`) :
+Ajouter la constante au niveau module de `quest_reader/reader.py`, en tête du
+fichier après les imports :
 
 ```python
 CLOSED_AFTER = 2  # images sans bulle avant de couper la voix
@@ -114,18 +113,18 @@ CLOSED_AFTER = 2  # images sans bulle avant de couper la voix
 
 **Step 4 : Lancer les tests, vérifier qu'ils passent**
 
-Run: `.venv/bin/python -m pytest tests/test_detection.py -q 2>&1 | tail -10`
+Run: `.venv/bin/python -m pytest tests/test_reader.py -q 2>&1 | tail -10`
 Expected: PASS (tous verts).
 
 **Step 5 : Vérifier qu'aucun `Reader.CLOSED_AFTER` ne subsiste**
 
-Run: `grep -rn "Reader.CLOSED_AFTER\|self.CLOSED_AFTER" quest_reader.py tests/`
+Run: `grep -rn "Reader.CLOSED_AFTER\|self.CLOSED_AFTER" quest_reader/ tests/`
 Expected: aucune sortie (référence de classe/instance éliminée).
 
 **Step 6 : Commit**
 
 ```bash
-git add quest_reader.py tests/test_detection.py
+git add quest_reader/reader.py tests/test_reader.py
 git commit -m "feat: couper la voix après 2 images sans bulle"
 ```
 
@@ -134,11 +133,12 @@ git commit -m "feat: couper la voix après 2 images sans bulle"
 ### Task A2 : Passer `--fps` par défaut à 4
 
 **Files:**
-- Modify: `quest_reader.py:1156` (argument `--fps`), commentaires de `Reader`
+- Modify: `quest_reader/__main__.py` (argument `--fps` dans `main`), commentaires de `Reader` (`quest_reader/reader.py`)
 
 **Step 1 : Modifier le défaut**
 
-Ligne 1156, remplacer :
+Dans `quest_reader/__main__.py`, `main` (repérer :
+`grep -n '"--fps"' quest_reader/__main__.py`), remplacer :
 
 ```python
     parser.add_argument("--fps", type=int, default=2, help="images analysées par seconde")
@@ -152,7 +152,7 @@ par :
 
 **Step 2 : Vérifier qu'aucun test ne fixe `repeat_after`/`fps` en dur sur 2**
 
-Run: `grep -rn "fps" tests/test_detection.py`
+Run: `grep -rn "fps" tests/`
 Expected: aucun test ne dépend du défaut de `--fps` (les tests pilotent
 `handle` image par image, pas l'horloge). Si un test apparaît, l'inspecter.
 
@@ -164,7 +164,7 @@ Expected: PASS (164+ tests, aucun lié au défaut de fps).
 **Step 4 : Commit**
 
 ```bash
-git add quest_reader.py
+git add quest_reader/__main__.py
 git commit -m "feat: analyser 4 images par seconde par défaut"
 ```
 
@@ -181,10 +181,13 @@ git commit -m "feat: analyser 4 images par seconde par défaut"
 > supprimé). On réécrit tout, on ne commet qu'une fois vert.
 
 **Files:**
-- Modify: `quest_reader.py` — `Playback` (l.539-575), `play_wave` (l.582),
-  `PiperEngine.speak` (l.603-615), `KokoroEngine.speak` (l.637-652),
-  `XttsEngine.speak` (l.719-757), `Speaker` (l.760-836)
-- Test: `tests/test_detection.py`
+- Modify: `quest_reader/playback.py` — `Playback` et `play_wave`
+- Modify: `quest_reader/engines/piper.py` — `PiperEngine.speak`
+- Modify: `quest_reader/engines/kokoro.py` — `KokoroEngine.speak`
+- Modify: `quest_reader/engines/xtts.py` — `XttsEngine.speak`
+- Modify: `quest_reader/speaker.py` — `Speaker`
+- Test: `tests/test_playback.py` (tests `Playback`), `tests/test_speaker.py`
+  (tests `Speaker`/bascule)
 
 **Contexte.** La course : `silence()` pose `stopped=True`, puis `say()` →
 `resume()` pose `stopped=False` avant que le `Speaker` ait vu l'arrêt →
@@ -194,18 +197,23 @@ chaque énoncé porte sa génération ; le son ne part que si la génération n'
 changé depuis le début de l'énoncé. `BACKLOG` tombe à 1.
 
 **Contrat des trois moteurs (vérifié en lisant le code) :** chacun a
-exactement un point de lecture `play_wave(path)`. Piper (l.609) et XTTS (l.743)
-ont en plus une garde `if playback.stopped:` en cours de boucle ; Kokoro n'en a
-pas (une seule phrase par appel). La révision : signature `speak(self, text,
-narration, generation)`, garde `if generation != playback.generation:` là où
-il y avait `playback.stopped`, et `play_wave(path)` → `play_wave(path,
-generation)`.
+exactement un point de lecture `play_wave(path)`. `PiperEngine.speak`
+(`engines/piper.py`) et `XttsEngine.speak` (`engines/xtts.py`) ont en plus une
+garde `if playback.stopped:` en cours de boucle ; `KokoroEngine.speak`
+(`engines/kokoro.py`) n'en a pas (une seule phrase par appel). La révision :
+signature `speak(self, text, narration, generation)`, garde
+`if generation != playback.generation:` là où il y avait `playback.stopped`,
+et `play_wave(path)` → `play_wave(path, generation)`.
 
-**Step 1 : Écrire les tests (course + bascille + Playback)**
+**Step 1 : Écrire les tests (course + bascule + Playback)**
 
-Ajouter/réécrire dans `tests/test_detection.py`. **Réécrire** les deux tests
-Playback existants (`test_playback_refuse_de_jouer_apres_un_arret` l.375 et
-`test_playback_coupe_le_son_en_cours` l.388) qui utilisent l'ancienne API :
+Les tests `Playback` vivent dans `tests/test_playback.py`, les tests `Speaker`
+dans `tests/test_speaker.py` ; l'instance module `playback` est importée
+depuis `quest_reader.playback`. **Réécrire** dans `tests/test_playback.py` les
+tests Playback existants qui utilisent l'ancienne API `stop`/`resume` —
+`test_playback_refuse_de_jouer_apres_un_arret`,
+`test_playback_coupe_le_son_en_cours` et `test_playback_rouvre_a_la_reprise` —
+et ajouter les tests de bascule dans `tests/test_speaker.py` :
 
 ```python
 def test_playback_ne_joue_pas_une_generation_perimee():
@@ -258,20 +266,23 @@ def test_un_nouveau_dialogue_coupe_le_precedent():
     assert playback.generation > g0       # chaque say ouvre une génération
 ```
 
-> Note : `playback` est l'instance module unique importée par les tests. Ces
-> tests la mutent (génération) ; c'est déjà le cas des tests Playback
-> existants, sans isolation particulière.
+> Note : `playback` est l'instance module unique (`quest_reader.playback`)
+> importée par les tests. Ces tests la mutent (génération) ; c'est déjà le cas
+> des tests Playback existants, sans isolation particulière. Le
+> `test_un_nouveau_dialogue_coupe_le_precedent` importe cette instance :
+> `from quest_reader.playback import playback` (ou `from quest_reader import
+> Speaker` + l'instance).
 
 **Step 2 : Lancer, vérifier l'échec franc**
 
-Run: `.venv/bin/python -m pytest tests/test_detection.py -q 2>&1 | tail -20`
+Run: `.venv/bin/python -m pytest tests/test_playback.py tests/test_speaker.py -q 2>&1 | tail -20`
 Expected: FAIL. `Playback` n'a ni `begin` ni `bump`, `play` ne prend pas de
 génération, `say` n'ouvre pas de génération et `BACKLOG` vaut 4. Plusieurs
 tests rouges — normal.
 
 **Step 3 : Réécrire `Playback`**
 
-Remplacer la classe `Playback` (l.539-575) par :
+Dans `quest_reader/playback.py`, remplacer la classe `Playback` par :
 
 ```python
 class Playback:
@@ -322,7 +333,7 @@ class Playback:
 
 **Step 4 : Adapter `play_wave` et les trois moteurs**
 
-`play_wave` (l.582) prend la génération :
+`play_wave` (`quest_reader/playback.py`) prend la génération :
 
 ```python
 def play_wave(path, generation):
@@ -332,15 +343,18 @@ def play_wave(path, generation):
 Pour chaque moteur, ajouter `generation` à la signature de `speak`, remplacer
 la garde `if playback.stopped:` par `if generation != playback.generation:`,
 et passer `generation` à `play_wave` :
-- `PiperEngine.speak` (l.603) : signature ; garde l.609 ; `play_wave` l.614.
-- `KokoroEngine.speak` (l.637) : signature ; pas de garde `stopped` à
-  remplacer ; `play_wave` l.652.
-- `XttsEngine.speak` (l.719) : signature ; garde l.743 ; `play_wave` l.757.
+- `PiperEngine.speak` (`engines/piper.py`) : signature ; garde `if playback.stopped:` ; appel `play_wave`.
+- `KokoroEngine.speak` (`engines/kokoro.py`) : signature ; pas de garde `stopped` à
+  remplacer ; appel `play_wave`.
+- `XttsEngine.speak` (`engines/xtts.py`) : signature ; garde `if playback.stopped:` ; appel `play_wave`.
 
 **Step 5 : Réécrire `Speaker`**
 
-- `BACKLOG = 4` → `BACKLOG = 1` (adapter le commentaire l.769-775 : la file ne
-  garde qu'un énoncé, un nouveau dialogue coupe et remplace au lieu d'empiler).
+Dans `quest_reader/speaker.py` :
+
+- `BACKLOG = 4` → `BACKLOG = 1` (adapter le commentaire de la constante : la
+  file ne garde qu'un énoncé, un nouveau dialogue coupe et remplace au lieu
+  d'empiler).
 - `run`, `silence`, `say`, plus un `_drain` privé :
 
 ```python
@@ -386,7 +400,7 @@ et passer `generation` à `play_wave` :
                 break
 ```
 
-`stop(self, timeout=5)` (l.821) purge déjà la file ; remplacer sa boucle de
+`stop(self, timeout=5)` purge déjà la file ; remplacer sa boucle de
 purge par `self._drain()` et garder le `put(None)` + `join(timeout)`.
 
 **Step 6 : Adapter les moteurs factices des tests**
@@ -394,34 +408,35 @@ purge par `self._drain()` et garder le `put(None)` + `join(timeout)`.
 Toute classe de test avec `def speak(self, texte, narration)` doit prendre
 `generation`. Les repérer :
 
-Run: `grep -n "def speak" tests/test_detection.py`
+Run: `grep -rn "def speak" tests/`
 Expected: ajouter `, generation` à chaque signature de moteur factice
-(y compris celui de `test_le_ctrl_c_purge_la_file`/`Speaker.stop` autour de
-l.304).
+(notamment celui de `test_le_speaker_s_arrete_sans_vider_sa_file` dans
+`tests/test_speaker.py`).
 
 **Step 7 : Lancer toute la suite**
 
 Run: `.venv/bin/python -m pytest tests/ -q 2>&1 | tail -15`
 Expected: PASS. Points de vigilance :
-- `test_deux_repliques_successives_sont_toutes_deux_lues` (l.449) reste vert :
-  A et B toutes deux lues via `handle` ; la bascule ne perd que le reliquat de A.
-- `test_la_file_du_speaker_ne_grossit_pas_sans_fin` (l.592) : l'attendu
-  `qsize() <= Speaker.BACKLOG` reste juste (BACKLOG vaut 1 maintenant).
-- `test_say_ne_bloque_pas_le_fil_de_capture` (l.609) : `say` purge et enfile
-  sans attendre — toujours non bloquant.
-- Le test `Speaker.stop` (l.304-316) : le `MoteurFactice` a la nouvelle
-  signature ; l'arrêt reste immédiat.
+- `test_deux_repliques_successives_sont_toutes_deux_lues` (`tests/test_reader.py`)
+  reste vert : A et B toutes deux lues via `handle` ; la bascule ne perd que le
+  reliquat de A.
+- `test_la_file_du_speaker_ne_grossit_pas_sans_fin` (`tests/test_speaker.py`) :
+  l'attendu `qsize() <= Speaker.BACKLOG` reste juste (BACKLOG vaut 1 maintenant).
+- `test_say_ne_bloque_pas_le_fil_de_capture` (`tests/test_speaker.py`) : `say`
+  purge et enfile sans attendre — toujours non bloquant.
+- `test_le_speaker_s_arrete_sans_vider_sa_file` (`tests/test_speaker.py`) : le
+  `MoteurFactice` a la nouvelle signature ; l'arrêt reste immédiat.
 
 **Step 8 : Vérifier qu'aucune trace de l'ancienne API ne subsiste**
 
-Run: `grep -rn "playback.stopped\|\.resume()\|\.stop()" quest_reader.py`
+Run: `grep -rn "playback.stopped\|\.resume()\|\.stop()" quest_reader/`
 Expected: aucun `playback.stopped`, aucun `.resume()`. (`Speaker.stop()` et
 `pipeline`/`Gst` stops peuvent rester — vérifier qu'aucun ne vise `playback`.)
 
 **Step 9 : Commit**
 
 ```bash
-git add quest_reader.py tests/test_detection.py
+git add quest_reader/ tests/
 git commit -m "feat: bascule immédiate au dialogue suivant via compteur de génération"
 ```
 
@@ -438,11 +453,12 @@ Expected: PASS, 0 échec.
 
 **Step 2 : Aucune référence morte**
 
-Run: `grep -rn "CLOSED_AFTER\|playback.stopped\|\.resume()\|BACKLOG = 4" quest_reader.py`
-Expected: `CLOSED_AFTER` uniquement comme constante module (=2) et son usage
-dans `handle` ; aucun `playback.stopped`, aucun `.resume()`, aucun
-`BACKLOG = 4`. (`play_wave` subsiste, mais avec la signature `(path,
-generation)` — vérifier qu'aucun appel ne l'invoque sans génération.)
+Run: `grep -rn "CLOSED_AFTER\|playback.stopped\|\.resume()\|BACKLOG = 4" quest_reader/`
+Expected: `CLOSED_AFTER` uniquement comme constante module de
+`quest_reader/reader.py` (=2) et son usage dans `handle` ; aucun
+`playback.stopped`, aucun `.resume()`, aucun `BACKLOG = 4`. (`play_wave`
+subsiste, mais avec la signature `(path, generation)` — vérifier qu'aucun appel
+ne l'invoque sans génération.)
 
 **Step 3 : Vérification en jeu (manuelle, hors CI)**
 
