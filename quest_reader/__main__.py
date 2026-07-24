@@ -59,7 +59,7 @@ def main():
         default=320,
         help="silence entre deux phrases, en millisecondes (piper)",
     )
-    parser.add_argument("--fps", type=int, default=2, help="images analysées par seconde")
+    parser.add_argument("--fps", type=int, default=4, help="images analysées par seconde")
     parser.add_argument(
         "--repeat-after",
         type=float,
