@@ -1,75 +1,24 @@
 #!/usr/bin/env python3
-"""Lit à voix haute les dialogues de PNJ de Dofus.
+"""Point d'entrée : lit à voix haute les dialogues de PNJ de Dofus.
 
 Capture l'écran en continu via le portail ScreenCast (Wayland), détecte la
 bulle de dialogue, l'OCRise et la lit avec une voix française.
 """
 
 import argparse
-import concurrent.futures
-import contextlib
-import difflib
-import os
-import pathlib
-import queue
-import re
-import signal
-import subprocess
 import sys
-import tempfile
-import threading
-import time
-import wave
 
 import cv2
-import numpy as np
-import pytesseract
-from PIL import Image
 
-import gi
-
-gi.require_version("Gst", "1.0")
-from gi.repository import Gst, GLib  # noqa: E402
-
-import dbus  # noqa: E402
-import dbus.mainloop.glib  # noqa: E402
-
-from quest_reader.engines import (  # noqa: E402
+from quest_reader.detection import find_dialog
+from quest_reader.engines import (
     VOICES,
     XTTS_NARRATION,
     XTTS_VOICE,
-    PiperEngine,
-    XttsEngine,
-    build_engine,
     check_xtts,
 )
-from quest_reader.engines.xtts import voice_argument  # noqa: E402
-from quest_reader.text import (  # noqa: E402
-    clean,
-    clearest,
-    fingerprint,
-    pronounce,
-    same_dialog,
-    speakable,
-    split_narration,
-    split_sentences,
-    strip_choices,
-    word_gap,
-)
-
-from quest_reader.detection import (  # noqa: E402
-    drop_replies,
-    find_bubbles,
-    find_dialog,
-    is_reply_block,
-    keep_word,
-    read_words,
-    reads_like_dialogue,
-)
-from quest_reader.playback import Playback, play_wave, playback  # noqa: E402
-from quest_reader.speaker import Speaker  # noqa: E402
-from quest_reader.capture import ScreenCast  # noqa: E402
-from quest_reader.reader import Reader  # noqa: E402
+from quest_reader.reader import Reader
+from quest_reader.text import clean
 
 
 def main():
