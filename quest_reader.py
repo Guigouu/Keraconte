@@ -6,7 +6,9 @@ bulle de dialogue, l'OCRise et la lit avec une voix française.
 """
 
 import argparse
-import hashlib
+import concurrent.futures
+import contextlib
+import difflib
 import os
 import pathlib
 import queue
@@ -38,18 +40,48 @@ KOKORO_DIR = pathlib.Path(os.path.expanduser("~/.local/share/kokoro"))
 KOKORO_MODEL = KOKORO_DIR / "kokoro.onnx"
 KOKORO_VOICES = KOKORO_DIR / "voices.bin"
 
+# Voix par défaut de XTTS, prises parmi celles du modèle. Cloner un
+# échantillon reste possible, mais donne un rendu inférieur : les voix
+# intégrées viennent d'enregistrements humains, pas d'une autre synthèse.
+XTTS_VOICE = "Damien Black"
+XTTS_NARRATION = "Sofia Hellen"
+
 # Réécritures appliquées avant la synthèse seulement. Sans voyelle, les
 # moteurs épellent l'onomatopée lettre à lettre.
 PRONUNCIATION = [(r"\bPs+t\b", "Pssit")]
 
-# La bulle est un aplat gris neutre ; le décor du jeu est coloré.
+# Deux habillages de bulle coexistent selon le thème choisi dans le jeu.
+#
+# Le thème sombre d'origine peint un aplat gris neutre, que le décor coloré
+# de Dofus ne sait pas imiter : l'écart entre canaux RVB suffit à l'isoler.
 MAX_CHANNEL_SPREAD = 12
 VALUE_MIN, VALUE_MAX = 18, 75
+# Le thème bleu, lui, est trop coloré pour ce critère — son écart monte à 23
+# quand le bois du décor est à 47. C'est alors la teinte qui tranche, et elle
+# tranche mieux : mesuré sur une capture de forge, bulle et réponses à 117,
+# tout le décor sous 28. Aucune fuite dans les zones témoins.
+BLUE_HUE_MIN, BLUE_HUE_MAX = 100, 135
+BLUE_VALUE_MIN, BLUE_VALUE_MAX = 30, 90
 
-# CLOSE 7 sépare le dialogue du bloc de réponses. Un noyau plus large
-# soude les deux quand l'écart est serré (vérifié sur deux captures).
+# CLOSE doit rester étroit : à 5 et au-delà, il soude la bulle au bloc de
+# réponses quand l'écart est serré, et l'appariement ne trouve plus la
+# paire qu'il exige — le dialogue passe alors inaperçu.
 OPEN_KERNEL = np.ones((9, 9), np.uint8)
-CLOSE_KERNEL = np.ones((7, 7), np.uint8)
+CLOSE_KERNEL = np.ones((3, 3), np.uint8)
+
+# Au-delà, un bloc est trop haut pour un simple panneau : il porte le
+# dialogue et ses réponses soudés. Mesuré à 664 px sur une capture où les
+# deux se touchent, contre 218 px pour une bulle seule.
+MERGED_MIN_HEIGHT = 400
+
+# Accepter un bloc sans réponses appariées ouvre la porte aux panneaux de
+# l'interface, isolés eux aussi : l'hôtel des ventes et les enclos se
+# faisaient lire. Un dialogue est fait de phrases, un panneau d'étiquettes
+# (« FILTRES », « ÉTABLE ») : la ponctuation les sépare nettement. Mesuré
+# sur les mots sûrs — 15 à 50 % dans les bulles, 1 à 3 % dans les panneaux.
+# La géométrie, elle, ne les séparait pas : un panneau d'enclos affiche le
+# même rapport largeur/hauteur qu'une bulle soudée à ses réponses.
+MIN_PUNCTUATION_RATIO = 0.08
 
 MIN_AREA = 40000
 MIN_WIDTH = 300
@@ -69,23 +101,53 @@ ALIGN_TOLERANCE = 60
 # Bordure ignorée à l'OCR, pour écarter les icônes des coins.
 MARGIN = 34
 
+# Seuils du tri des mots, relevés sur les fixtures via image_to_data.
+# Le bruit qui survit au test de structure sort entre 24 et 50 de confiance
+# (« PE » 24, « E » 36, « e » 43, « A » 44, « : » 50) ; les vrais mots courts
+# sont bien au-dessus (« Si » 83, « tu » 83, « as » 91, « à » 96). Le seuil
+# tient dans cet écart, sans le serrer : l'OCR fait varier ces scores d'une
+# image à l'autre.
+MIN_WORD_CONFIDENCE = 60
+# Les vrais mots mal notés sont longs (« t'enrôler » 41, « lieux, » 53) :
+# c'est leur longueur qui les sauve. Le bruit, lui, tient en trois signes.
+MAX_NOISE_LENGTH = 3
 
-def find_dialog(frame):
-    """Renvoie le texte de la bulle de dialogue, ou None.
+# Interligne mesuré dans une bulle : 16 à 20 px. L'écart jusqu'au bloc de
+# réponses vaut 95 px sur la capture « enrolement ». Le seuil sépare les deux
+# sans les toucher.
+MIN_REPLY_LINE_GAP = 40
+# Deux mots d'une même ligne diffèrent de quelques pixels en ordonnée : leurs
+# lignes de base ne coïncident pas au pixel près (mesuré jusqu'à 4 px).
+LINE_TOLERANCE = 10
 
-    Le bloc de réponses partage l'aspect de la bulle : on ne garde que le
-    bloc le plus haut, qui est toujours le dialogue lui-même.
+
+def find_bubbles(frame):
+    """Repère les blocs qui ont l'aspect d'une bulle, sans lire leur texte.
+
+    Séparé de « find_dialog » pour distinguer deux situations qu'un simple
+    « None » confondait : la bulle a disparu de l'écran, ou elle est bien là
+    mais l'OCR n'en a rien tiré. La première doit couper la voix, la seconde
+    surtout pas — c'est la même réplique qui continue de s'afficher.
     """
     height, width = frame.shape[:2]
     blue, green, red = cv2.split(frame.astype(np.int16))
     spread = np.maximum(np.maximum(blue, green), red) - np.minimum(
         np.minimum(blue, green), red
     )
-    value = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)[:, :, 2]
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    hue, value = hsv[:, :, 0], hsv[:, :, 2]
 
-    mask = (
-        (spread < MAX_CHANNEL_SPREAD) & (value > VALUE_MIN) & (value < VALUE_MAX)
-    ).astype(np.uint8) * 255
+    # Les deux thèmes sont reconnus d'un même masque : ils ne se recouvrent
+    # pas — un aplat gris n'a pas de teinte bleue franche — donc les unir
+    # n'ouvre la porte à aucun décor que l'un ou l'autre laissait dehors.
+    neutral = (spread < MAX_CHANNEL_SPREAD) & (value > VALUE_MIN) & (value < VALUE_MAX)
+    blueish = (
+        (hue >= BLUE_HUE_MIN)
+        & (hue <= BLUE_HUE_MAX)
+        & (value > BLUE_VALUE_MIN)
+        & (value < BLUE_VALUE_MAX)
+    )
+    mask = (neutral | blueish).astype(np.uint8) * 255
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, OPEN_KERNEL)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, CLOSE_KERNEL)
 
@@ -101,10 +163,21 @@ def find_dialog(frame):
             continue
         boxes.append((y, x, w, h))
 
+    boxes.sort()
+    return boxes, height
+
+
+def find_dialog(frame):
+    """Renvoie le texte de la bulle de dialogue, ou None.
+
+    Le bloc de réponses partage l'aspect de la bulle : on ne garde que le
+    bloc le plus haut, qui est toujours le dialogue lui-même.
+    """
+    boxes, height = find_bubbles(frame)
+
     # Un dialogue de PNJ est toujours suivi d'un bloc de réponses juste
     # en dessous. Les panneaux d'interface, eux, sont isolés : exiger la
     # paire écarte les faux positifs.
-    boxes.sort()
     for index, (y, x, w, h) in enumerate(boxes):
         replies = next(
             (
@@ -114,20 +187,155 @@ def find_dialog(frame):
             ),
             None,
         )
-        if replies is None:
+        # Quand les deux blocs se touchent, la morphologie les fond en un
+        # seul : la paire manque alors, mais la hauteur la trahit.
+        if replies is None and h < MERGED_MIN_HEIGHT:
             continue
         region = frame[y : y + h, x : x + w]
         white = (region > 200).all(2).mean()
         if not MIN_WHITE_RATIO <= white <= MAX_WHITE_RATIO:
             continue
         # Pas de rognage : la boîte est parfois déjà serrée sur le texte,
-        # et rogner amputerait le dialogue. Les icônes des coins sont
-        # écartées ensuite, au nettoyage du texte.
+        # et rogner amputerait le dialogue. Les icônes des coins sortent
+        # en mots isolés, qu'on écarte un à un ci-dessous.
         crop = cv2.cvtColor(region, cv2.COLOR_BGR2RGB)
-        text = pytesseract.image_to_string(Image.fromarray(crop), lang="fra").strip()
+        # image_to_data plutôt que image_to_string : c'est le seul moyen
+        # d'obtenir la confiance et la boîte de chaque mot, sur lesquelles
+        # reposent le tri du bruit et le repérage des réponses.
+        data = pytesseract.image_to_data(
+            Image.fromarray(crop), lang="fra", output_type=pytesseract.Output.DICT
+        )
+        words = read_words(data)
+        # Sur un bloc fusionné, l'OCR ramène aussi les réponses du joueur :
+        # elles se détachent par un large blanc, pas par leur grammaire.
+        if replies is None:
+            words = drop_replies(words)
+        # Un bloc admis sur sa seule hauteur peut être un panneau de
+        # l'interface : sans réponses appariées, rien ne l'a encore écarté.
+        if replies is None and not reads_like_dialogue(words):
+            continue
+        text = clean(" ".join(word["text"] for word in words))
         if len(text) >= MIN_CHARS:
             return text
     return None
+
+
+def reads_like_dialogue(words):
+    """Ces mots forment-ils des phrases, ou une liste d'étiquettes ?
+
+    Les panneaux du jeu (hôtel des ventes, enclos) alignent des libellés
+    sans ponctuation — « FILTRES », « ÉTABLE » — là où un dialogue enchaîne
+    des phrases. La géométrie ne les distingue pas : certains panneaux ont
+    le même rapport largeur/hauteur qu'une bulle soudée à ses réponses.
+    """
+    if not words:
+        return False
+    ponctues = sum(
+        1 for word in words if any(sign in word["text"] for sign in ".,!?…")
+    )
+    return ponctues / len(words) >= MIN_PUNCTUATION_RATIO
+
+
+def read_words(data):
+    """Extrait les mots retenus de la sortie d'image_to_data.
+
+    L'ordre de lecture est celui de Tesseract (bloc, paragraphe, ligne, mot)
+    et non l'ordonnée brute : les fragments d'icônes forment leurs propres
+    blocs, et trier sur « top » entrelacerait leurs lettres avec le texte.
+    """
+    words = []
+    for index, text in enumerate(data["text"]):
+        text = text.strip()
+        if not text:
+            continue
+        if not keep_word(text, int(data["conf"][index])):
+            continue
+        words.append(
+            {
+                "text": text,
+                "top": int(data["top"][index]),
+                "order": (
+                    int(data["block_num"][index]),
+                    int(data["par_num"][index]),
+                    int(data["line_num"][index]),
+                    int(data["word_num"][index]),
+                ),
+            }
+        )
+    words.sort(key=lambda word: word["order"])
+    return words
+
+
+# Une voyelle, une apostrophe ou un tiret font un mot français plausible.
+# L'apostrophe compte : « C' » et « d'y » sont des élisions, pas du bruit.
+PLAUSIBLE = re.compile(r"[aeiouyàâäéèêëîïôöùûüÿœæAEIOUYÀÂÄÉÈÊËÎÏÔÖÙÛÜŒÆ’'-]")
+
+
+def keep_word(text, confidence):
+    """Ce mot vient-il du dialogue, ou d'une icône mal lue ?
+
+    Deux signaux croisés, mesurés sur les fixtures : ni l'un ni l'autre ne
+    suffit seul. La structure attrape le bruit bien noté (« x » à 95, « R »
+    à 93), la confiance attrape le bruit plausible (« PE » 24, « A » 44).
+    La position, elle, ne sert à rien : le bruit apparaît aussi en plein
+    milieu d'une phrase (« Si ça A3 t'intéresse »).
+    """
+    text = text.strip()
+    if not text:
+        return False
+    # Un nombre seul est toujours du dialogue : il porte les quantités de
+    # quête (« ramène-moi 10 dagues »), et les taire prive le joueur de
+    # l'information. Ce test passe avant celui de la structure, qui les
+    # rejetterait faute de voyelle.
+    if text.isdigit():
+        return True
+    # Le français détache « ! » et « ? » du mot : l'OCR les rend alors
+    # comme un mot à part. Ils portent l'intonation, et les jeter
+    # transformait « Bienvenue ! » en « Bienvenue » — puis, la phrase
+    # n'étant plus close, le mot disparaissait au nettoyage de queue.
+    if all(sign in "!?…" for sign in text):
+        return True
+    # Mêler chiffres et lettres ne fait jamais un mot français : « A3 »,
+    # « 2E », « SN 64 ». Aucune confiance ne rachète cette forme.
+    if re.search(r"\d", text) and re.search(r"[^\W\d_]", text):
+        return False
+    # Sans voyelle, ce n'est pas un mot français — « »/ », « x », « R »,
+    # « dn » — sauf une onomatopée, que le jeu écrit justement ainsi :
+    # « Pssst » sort à 91 de confiance sur la capture « tokageko ». Le
+    # bruit sans voyelle, lui, est court ET mal noté : rejeter sur la
+    # seule structure tairait l'onomatopée.
+    if not PLAUSIBLE.search(text):
+        return len(text) > MAX_NOISE_LENGTH and confidence >= MIN_WORD_CONFIDENCE
+    # Reste le bruit structurellement plausible (« PE » 24, « A » 44). Les
+    # vrais mots mal notés sont longs (« t'enrôler » 41, « lieux, » 53) :
+    # la longueur les sauve.
+    return len(text) > MAX_NOISE_LENGTH or confidence >= MIN_WORD_CONFIDENCE
+
+
+def drop_replies(words):
+    """Retire les réponses du joueur d'un bloc fusionné, par géométrie.
+
+    Les reconnaître à leur verbe à l'infinitif effaçait de vraies phrases
+    de PNJ (« Rester ici serait dangereux. »). Or les réponses sont
+    séparées du dialogue par un blanc bien plus large qu'un interligne :
+    16 à 20 px entre deux lignes, 95 px avant le premier choix.
+    """
+    if not words:
+        return words
+    # Les mots d'une même ligne ne partagent pas exactement leur ordonnée :
+    # on les regroupe par proximité, dans l'ordre où ils apparaissent.
+    tops = sorted({word["top"] for word in words})
+    lines = [[tops[0]]]
+    for top in tops[1:]:
+        if top - lines[-1][-1] <= LINE_TOLERANCE:
+            lines[-1].append(top)
+        else:
+            lines.append([top])
+    # Le dialogue occupe le haut du bloc : on coupe au premier grand écart.
+    for previous, current in zip(lines, lines[1:]):
+        if current[0] - previous[-1] >= MIN_REPLY_LINE_GAP:
+            return [word for word in words if word["top"] <= previous[-1]]
+    return words
 
 
 def is_reply_block(dialog, candidate):
@@ -149,37 +357,149 @@ def clean(text):
     text = re.sub(r"\s*\n\s*", " ", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
 
-    # Les icônes et bordures de la bulle laissent des fragments de lettres
-    # isolées, collés au début et à la fin, et instables d'une image à
-    # l'autre. Une vraie phrase, elle, enchaîne au moins deux mots ; une
-    # didascalie ouvre sur un astérisque.
-    start = re.search(
-        r"\*\s*[A-Za-zÀ-ÿ]|[A-Za-zÀ-ÿ'’-]{3,}[,;:]?\s+[A-Za-zÀ-ÿ'’-]{2,}", text
-    )
-    if start:
-        text = text[start.start() :]
+    # Plus aucune regex de bruit ici : le tri se fait au mot, dans
+    # « keep_word », où la confiance de l'OCR est encore disponible.
+    # Énumérer les formes du bruit (« E x », « 2E », « CON . ») ne
+    # convergeait pas — chaque partie en révélait de nouvelles — et
+    # corriger une forme en cassait une autre.
 
     # La fin suit un vrai mot ou ferme une didascalie ; une ponctuation
     # isolée en queue ("\\ ; .") relève encore du bruit.
     # Le français place une espace avant « ? » et « ! » : on l'accepte.
-    ends = list(
-        re.finditer(r"[A-Za-zÀ-ÿ0-9’'](?:\s?[.!?…]+|\s*\*)", text)
-    )
+    ends = list(re.finditer(r"[A-Za-zÀ-ÿŒœ0-9’'](?:\s?[.!?…]+|\s*\*)", text))
     if ends:
         text = text[: ends[-1].end()]
     return text.strip()
 
 
-def fingerprint(text):
-    """Empreinte tolérante aux caractères parasites de l'OCR.
+def strip_choices(text):
+    """Recolle les lignes, sans plus retirer aucune phrase.
 
-    Le même dialogue peut être lu avec de légères variations d'une image à
-    l'autre : comparer les seules lettres évite de le relire en boucle.
+    Les réponses du joueur se reconnaissaient à leur verbe à l'infinitif.
+    Ce critère grammatical effaçait de vraies phrases de PNJ : « Rester ici
+    serait dangereux. » disparaissait sans trace. Le retrait se fait
+    désormais sur la géométrie, dans « drop_replies », où les boîtes des
+    mots sont encore connues — un texte seul ne peut pas les distinguer.
     """
-    letters = re.sub(r"[^a-zà-ÿ]", "", text.lower())
-    # Ignore les extrémités, où se logent les parasites d'icônes.
-    core = letters[8:-8] if len(letters) > 40 else letters
-    return hashlib.sha1(core.encode()).hexdigest()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def fingerprint(text):
+    """Empreinte des lettres et des chiffres, sans casse ni ponctuation.
+
+    Les chiffres comptent : « rapporte 5 peaux » et « rapporte 6 peaux »
+    sont deux quêtes différentes, et les confondre en tairait une.
+    """
+    return re.sub(r"[^a-zà-ÿœ0-9]", "", text.lower())
+
+
+# Deux lectures d'une même bulle diffèrent de quelques lettres au plus.
+# Mesuré : « doué » lu « doub », « grand » lu « grancl ». Deux répliques
+# distinctes, elles, ne se ressemblent pas à ce point.
+SAME_DIALOG_RATIO = 0.9
+# Au-delà, un chiffre qui bouge est du bruit d'OCR, pas une quantité de
+# quête. Mesuré sur les cas connus : quantités à 16 et 31 caractères
+# (« Il m'en faut 10. », « Va chercher 5 peaux de bouftou. »), bruit à 76
+# et 315 (Dyaul, Brâkmar). Le seuil est posé au milieu de cet écart.
+NUMBERS_DECIDE_BELOW = 50
+# Écart de longueur en deçà duquel deux lectures du même dialogue sont
+# tenues pour aussi complètes l'une que l'autre. Mesuré : deux variantes ne
+# différant que par le bruit d'OCR s'écartent de 2 caractères, une phrase
+# entière manquante en retire 57.
+NOISE_SLACK = 10
+# Écart de vocabulaire en deçà duquel deux lectures sont la même réplique.
+# Mesuré sur les captures : variantes d'un même dialogue de 0,00 à 0,31
+# (permutation de lignes comprise), dialogues distincts de 1,86 à 4,11.
+SAME_WORDS_GAP = 0.6
+
+
+def clearest(*variants):
+    """Choisit la meilleure lecture parmi plusieurs images du même texte.
+
+    La complétude prime : Dofus affiche ses répliques progressivement, et
+    une variante plus courte est une phrase à moitié écrite, pas une phrase
+    mieux lue. Trier d'abord sur la propreté faisait préférer « ...apaiser
+    le molosse. » à la réplique entière, dont la fin n'était alors jamais
+    dite.
+
+    À longueur voisine, on départage sur le bruit : l'OCR rend « longtemps »
+    tantôt juste, tantôt « —L|nngremps », et ces caractères-là n'existent pas
+    dans du français écrit.
+    """
+
+    def damage(text):
+        return sum(1 for sign in text if not re.match(r"[\w\s'’!?.,;:…-]", sign))
+
+    # La médiane, et non le maximum : une variante qui dépasse nettement les
+    # autres porte un bloc de réponses que « drop_replies » a laissé passer,
+    # et la prendre pour référence faisait dire « Je l'ai convoqué en cuisine.
+    # Suivre les ordres. » On ne peut pas la reconnaître à son texte — c'est
+    # tout l'objet de « drop_replies » —, mais on peut refuser de la suivre
+    # quand les autres lectures s'accordent sur plus court.
+    lengths = sorted(len(text) for text in variants)
+    typical = lengths[len(lengths) // 2]
+    complete = [text for text in variants if abs(len(text) - typical) <= NOISE_SLACK]
+    return min(complete or variants, key=damage)
+
+
+def word_gap(first, second):
+    """Mesure l'écart de vocabulaire entre deux lectures, relatif à la plus courte.
+
+    Insensible à l'ordre des mots et à la troncature, là où la comparaison de
+    séquence trébuche sur les deux. Les mots de moins de trois lettres sont
+    ignorés : l'OCR sème des « À » et des « i » en marge du texte.
+    """
+
+    def vocabulary(text):
+        return {word for word in re.findall(r"[\w’']{3,}", text.lower())}
+
+    left, right = vocabulary(first), vocabulary(second)
+    if not left or not right:
+        return 0.0 if left == right else float("inf")
+    return len(left ^ right) / min(len(left), len(right))
+
+
+def same_dialog(first, second):
+    """Ces deux textes sont-ils la même réplique, au bruit d'OCR près ?
+
+    Une seule lettre instable suffit à changer un hash exact, et le dialogue
+    était alors relu en entier. On compare donc par similarité.
+    """
+    # Un nombre qui change distingue deux quêtes (« 5 peaux » puis « 6 »),
+    # mais pèse trop peu dans le ratio pour s'y voir. Le garde ne vaut donc
+    # que sur des textes courts, où le nombre porte vraiment la différence.
+    #
+    # Sur une longue réplique, un chiffre qui bouge est du bruit d'OCR : vu
+    # en jeu sur le dialogue de Brâkmar, « celui qui 4 oserait » à une image
+    # et « 2 L'avantage » à la suivante, pour 0,99 de concordance par
+    # ailleurs. S'y fier faisait relire les six phrases en entier.
+    numbers, others = re.findall(r"\d+", first), re.findall(r"\d+", second)
+    if numbers != others and max(len(first), len(second)) <= NUMBERS_DECIDE_BELOW:
+        return False
+    left, right = fingerprint(first), fingerprint(second)
+    if not left or not right:
+        return left == right
+    # L'OCR rend le même dialogue de plusieurs façons : tronqué quand Dofus
+    # est encore en train de l'écrire, ou lignes permutées quand l'image est
+    # saisie pendant un rafraîchissement. Le ratio de séquence ne survit ni à
+    # l'un (0,85) ni à l'autre (0,74), et la réplique repartait en lecture.
+    #
+    # Le vocabulaire, lui, tient : mesuré sur les captures, les variantes d'un
+    # même dialogue s'écartent de 0,00 à 0,31, deux dialogues distincts de
+    # 1,86 à 4,11. Aucune fixation d'ordre ne franchit cet écart.
+    if word_gap(first, second) <= SAME_WORDS_GAP:
+        return True
+    return difflib.SequenceMatcher(None, left, right).ratio() >= SAME_DIALOG_RATIO
+
+
+def speakable(text):
+    """Ce texte a-t-il de quoi être prononcé ?
+
+    Sans lettre ni chiffre, un moteur ne produit aucun phonème : Kokoro
+    concatène alors une liste vide et lève « need at least one array to
+    concatenate ». Même définition du contenu que « fingerprint ».
+    """
+    return bool(re.search(r"[a-zà-ÿœ0-9]", text.lower()))
 
 
 def split_narration(text):
@@ -191,7 +511,9 @@ def split_narration(text):
     segments = []
     for index, part in enumerate(re.split(r"\*([^*]+)\*", text)):
         part = part.strip(" *")
-        if part:
+        # Entre deux didascalies accolées, il ne reste parfois qu'un trait
+        # d'union : rien à dire, et le moteur s'y casse.
+        if speakable(part):
             segments.append((index % 2 == 1, part))
     return segments
 
@@ -214,8 +536,51 @@ def split_sentences(text):
     return [part.strip() for part in parts if part.strip()]
 
 
+class Playback:
+    """Joue les sons, et sait les interrompre depuis un autre fil.
+
+    « paplay » bloque jusqu'à la fin du fichier : pour couper la voix quand
+    le joueur ferme le dialogue, il faut tuer le processus. L'ordre vient du
+    fil de capture, la lecture tourne dans le fil « Speaker », d'où le
+    verrou — sans lui, un arrêt tombant juste avant un « Popen » laisserait
+    partir le son qu'il devait empêcher.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.current = None
+        self.stopped = False
+
+    def play(self, path):
+        with self.lock:
+            if self.stopped:
+                return
+            self.current = subprocess.Popen(
+                ["paplay", path], stderr=subprocess.DEVNULL
+            )
+        self.current.wait()
+        with self.lock:
+            self.current = None
+
+    def stop(self):
+        """Coupe le son en cours et refuse les suivants."""
+        with self.lock:
+            self.stopped = True
+            if self.current is not None:
+                self.current.terminate()
+
+    def resume(self):
+        """Rouvre la lecture, à l'apparition d'un nouveau dialogue."""
+        with self.lock:
+            self.stopped = False
+
+
+# Instance unique : les moteurs l'appellent, la capture l'interrompt.
+playback = Playback()
+
+
 def play_wave(path):
-    subprocess.run(["paplay", path], check=False, stderr=subprocess.DEVNULL)
+    playback.play(path)
 
 
 class PiperEngine:
@@ -229,13 +594,20 @@ class PiperEngine:
     def __init__(self, voices, speed, pause):
         from piper import PiperVoice, SynthesisConfig
 
-        self.config = SynthesisConfig(length_scale=speed)
+        # Piper raisonne en durée : au-dessus de 1, il ralentit. On expose
+        # un débit, donc on inverse.
+        self.config = SynthesisConfig(length_scale=1 / speed)
         self.voices = {kind: PiperVoice.load(path) for kind, path in voices.items()}
         self.pause = pause
 
     def speak(self, text, narration):
         voice = self.voices["narration" if narration else "dialogue"]
         for sentence in split_sentences(pronounce(text)):
+            # Le découpage isole parfois une ponctuation seule (« Ah… ! »).
+            if not speakable(sentence):
+                continue
+            if playback.stopped:  # dialogue fermé en cours de réplique
+                return
             with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
                 with wave.open(handle.name, "wb") as output:
                     voice.synthesize_wav(sentence, output, syn_config=self.config)
@@ -252,7 +624,9 @@ class KokoroEngine:
     """
 
     VOICE = "ff_siwis"
-    NARRATION_SLOWDOWN = 0.85
+    # Seul signe distinctif des didascalies faute d'une seconde voix : il
+    # faut donc que l'écart de débit s'entende nettement.
+    NARRATION_SLOWDOWN = 0.75
 
     def __init__(self, speed):
         from kokoro_onnx import Kokoro
@@ -263,15 +637,124 @@ class KokoroEngine:
     def speak(self, text, narration):
         import soundfile
 
-        speed = 1 / self.speed
+        spoken = pronounce(text)
+        # Sans phonème à concaténer, « create » lève au lieu de se taire.
+        if not speakable(spoken):
+            return
+        speed = self.speed
         if narration:
             speed *= self.NARRATION_SLOWDOWN
         samples, rate = self.kokoro.create(
-            pronounce(text), voice=self.VOICE, lang="fr-fr", speed=speed
+            spoken, voice=self.VOICE, lang="fr-fr", speed=speed
         )
         with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
             soundfile.write(handle.name, samples, rate)
             play_wave(handle.name)
+
+
+def voice_argument(voice):
+    """Traduit une voix en argument pour XTTS.
+
+    Le modèle embarque cinquante-huit voix humaines : les nommer donne un
+    bien meilleur rendu que cloner un échantillon, surtout si celui-ci
+    provient déjà d'une synthèse — les défauts s'y accumulent.
+    """
+    if os.path.isfile(voice):
+        return {"speaker_wav": voice}
+    return {"speaker": voice}
+
+
+class XttsEngine:
+    """Clone deux voix à partir d'échantillons WAV, sur la carte graphique.
+
+    Mesuré sur RTX 3070 Ti : ratio 0,24× — la synthèse va quatre fois plus
+    vite que la parole — pour 1,96 Go de VRAM. Le découpage par phrases,
+    comme chez Piper, rend l'attente imperceptible malgré les 83 s de
+    chargement initial, payées une seule fois dans le fil « Speaker ».
+    """
+
+    MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
+
+    def __init__(self, samples, speed):
+        # Import tardif, comme les autres moteurs : le venv du projet n'a
+        # pas torch, et l'importer au niveau module casserait tout le reste.
+        import torch
+        import transformers.pytorch_utils as pu
+
+        # Rustine obligatoire. Coqui importe « isin_mps_friendly » depuis
+        # transformers, qui l'a retiré en 5.x : sans elle, « from TTS.api
+        # import TTS » lève ImportError. XTTS ne s'en sert pas, mais le
+        # module fautif (tortoise) est chargé au passage. Les arguments
+        # sont passés par mot-clé, d'où cette signature exacte.
+        if not hasattr(pu, "isin_mps_friendly"):
+            pu.isin_mps_friendly = lambda elements, test_elements: torch.isin(
+                elements, test_elements
+            )
+
+        from TTS.api import TTS
+
+        self.tts = TTS(self.MODEL).to("cuda")
+        self.samples = samples
+        self.speed = speed
+        # Un seul fil : deux synthèses simultanées se disputeraient la carte
+        # sans rien gagner. Il ne sert qu'à prendre une phrase d'avance.
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    def render(self, sentence, sample, path):
+        # Pas de « no_grad » ici : Coqui l'applique déjà en interne. Mesuré —
+        # douze répliques d'affilée, avec et sans, la mémoire reste plate à
+        # 4,7 Go dans les deux cas.
+        #
+        # « speed » va déjà dans le sens du débit chez XTTS : au-dessus de 1,
+        # plus rapide. Pas d'inversion, contrairement à Piper qui raisonne
+        # en durée.
+        self.tts.tts_to_file(
+            text=sentence,
+            language="fr",
+            speed=self.speed,
+            file_path=path,
+            **voice_argument(sample),
+        )
+
+    def speak(self, text, narration):
+        """Synthétise la phrase suivante pendant que la précédente se joue.
+
+        « play_wave » bloque, et XTTS met environ une seconde et demie par
+        phrase : les enchaîner bout à bout laissait un silence entre chacune,
+        soit cinq trous dans une réplique un peu longue. Piper synthétise
+        trop vite pour que cela s'entende, d'où le découpage naïf d'origine.
+        """
+        sample = self.samples["narration" if narration else "dialogue"]
+        # Sans phonème, le moteur concatène une liste vide et lève.
+        sentences = [
+            sentence
+            for sentence in split_sentences(pronounce(text))
+            if speakable(sentence)
+        ]
+        with contextlib.ExitStack() as stack:
+            files = [
+                stack.enter_context(tempfile.NamedTemporaryFile(suffix=".wav"))
+                for _ in sentences
+            ]
+            avance = None
+            for position, sentence in enumerate(sentences):
+                # Inutile d'occuper la carte pour un dialogue déjà fermé :
+                # « Playback » refuserait de jouer le résultat.
+                if playback.stopped:
+                    break
+                if avance is None:
+                    self.render(sentence, sample, files[position].name)
+                else:
+                    avance.result()
+                suivante = position + 1
+                avance = (
+                    self.pool.submit(
+                        self.render, sentences[suivante], sample, files[suivante].name
+                    )
+                    if suivante < len(sentences)
+                    else None
+                )
+                play_wave(files[position].name)
 
 
 class Speaker(threading.Thread):
@@ -283,9 +766,17 @@ class Speaker(threading.Thread):
 
     daemon = True
 
+    # Le dialogue en cours et trois qui attendent : de quoi enchaîner une
+    # conversation sans rien perdre. Au-delà, la lecture a tant de retard
+    # sur l'écran que le joueur est déjà ailleurs.
+    #
+    # Deux ne suffisaient pas : XTTS met plusieurs secondes par réplique, et
+    # « lecture en retard » sautait des dialogues d'un échange normal.
+    BACKLOG = 4
+
     def __init__(self, build_engine):
         super().__init__()
-        self.queue = queue.Queue()
+        self.queue = queue.Queue(maxsize=self.BACKLOG)
         self.build_engine = build_engine
 
     def run(self):
@@ -295,14 +786,54 @@ class Speaker(threading.Thread):
             if segments is None:
                 return
             for narration, part in segments:
+                # Le dialogue a pu se fermer entre deux segments : ne pas
+                # entamer la didascalie d'une bulle qui n'est plus là.
+                if playback.stopped:
+                    break
                 try:
                     engine.speak(part, narration)
                 except Exception as error:
                     # Mieux vaut un dialogue amputé qu'une partie interrompue.
                     print(f"synthèse impossible : {error}", file=sys.stderr)
 
+    def silence(self):
+        """Coupe la voix et jette ce qui restait à dire."""
+        playback.stop()
+        while True:
+            try:
+                self.queue.get_nowait()
+            except queue.Empty:
+                break
+
     def say(self, text):
-        self.queue.put(split_narration(text))
+        # Un nouveau dialogue lève l'interdiction posée par « silence ».
+        playback.resume()
+        try:
+            self.queue.put_nowait(split_narration(text))
+        except queue.Full:
+            # Jamais bloquer ici : cet appel vient du fil de capture. Le
+            # chargement de XTTS dure 83 s, pendant lesquelles « run » ne
+            # dépile rien ; une file sans limite y accumulait tout ce que
+            # l'écran affichait, puis le synthétisait en rafale — de quoi
+            # remplir la machine. Mieux vaut sauter un dialogue périmé.
+            print("lecture en retard : dialogue ignoré", file=sys.stderr)
+
+    def stop(self, timeout=5):
+        """Arrête le fil et attend sa fin avant que l'interpréteur ferme.
+
+        Sans cette attente, le fil « daemon » survit au Ctrl+C et rappelle
+        espeak alors que ses dossiers temporaires sont déjà détruits :
+        « [Errno 2] libespeak-ng.so », une fois par élément restant.
+        """
+        # Purger d'abord : sinon l'arrêt attend que toute la file soit lue.
+        while True:
+            try:
+                self.queue.get_nowait()
+            except queue.Empty:
+                break
+        self.queue.put(None)
+        # Borné : une lecture bloquée ne doit pas retenir la fermeture.
+        self.join(timeout)
 
 
 class ScreenCast:
@@ -402,12 +933,21 @@ class ScreenCast:
 
 
 class Reader:
+    # Images consécutives sans bulle avant de tenir le dialogue pour fermé.
+    # À --fps 2, cela laisse une seconde et demie : assez pour absorber une
+    # disparition passagère, assez court pour que la coupure suive le geste.
+    CLOSED_AFTER = 3
+
     def __init__(self, args):
         self.args = args
         self.speaker = Speaker(lambda: build_engine(args))
         self.speaker.start()
-        self.last_hash = None
+        self.last_text = None
         self.last_seen = 0.0
+        self.missing = 0
+        # Texte vu à l'image précédente, pas encore lu : on attend de voir
+        # s'il grandit encore avant de le confier à la synthèse.
+        self.pending = []
         self.pipeline = None
 
     def on_node(self, fd, node_id):
@@ -451,15 +991,58 @@ class Reader:
     def handle(self, frame):
         text = find_dialog(frame)
         if not text:
+            # Ne couper que si la bulle a vraiment quitté l'écran. L'OCR
+            # échoue régulièrement sur une bulle bien présente — texte en
+            # cours d'affichage, rafraîchissement — et couper là-dessus
+            # arrêtait la voix au milieu d'une réplique qui n'avait pas
+            # changé, sans jamais reprendre puisque le texte au retour est
+            # reconnu comme déjà lu.
+            boxes, _ = find_bubbles(frame)
+            if boxes:
+                return
+            # La bulle disparaît parfois une image sans que le joueur ait
+            # rien fermé — fondu, fenêtre qui passe devant. Couper au premier
+            # trou hacherait la lecture, d'où le comptage.
+            self.missing += 1
+            if self.missing == self.CLOSED_AFTER:
+                self.speaker.silence()
+                # « last_text » survit exprès. Trois images sans bulle ne
+                # prouvent pas que le joueur a fermé quoi que ce soit, et
+                # effacer la mémoire faisait relire le dialogue en entier au
+                # retour — quatre fois pour une réplique un peu longue. C'est
+                # « repeat_after » qui autorise une relecture, pas l'oubli.
+                self.pending = []
             return
+        self.missing = 0
         text = clean(text)
-        digest = fingerprint(text)
         now = time.time()
         # Même dialogue tant qu'il reste affiché : ne pas relire en boucle.
-        if digest == self.last_hash and now - self.last_seen < self.args.repeat_after:
+        # La comparaison est tolérante, car l'OCR fait varier quelques
+        # lettres d'une image à l'autre sans que la réplique change.
+        if (
+            self.last_text is not None
+            and same_dialog(text, self.last_text)
+            and now - self.last_seen < self.args.repeat_after
+        ):
             self.last_seen = now
             return
-        self.last_hash = digest
+        # Dofus écrit sa réplique progressivement, et l'OCR la saisit en
+        # chemin : « ...apaiser le molosse. » à une image, la phrase entière
+        # à la suivante. Lire la première donnerait un dialogue amputé dont
+        # la fin ne serait jamais dite, et chaque état intermédiaire passait
+        # pour une nouvelle réplique. On accumule donc les variantes tant que
+        # le texte grandit, et l'on ne parle qu'une fois qu'il s'est posé.
+        if self.pending and same_dialog(text, self.pending[-1]):
+            self.pending.append(text)
+        else:
+            self.pending = [text]
+            return
+        # Encore en train de s'écrire : attendre l'image suivante.
+        if len(text) > max(len(seen) for seen in self.pending[:-1]):
+            return
+        text = clearest(*self.pending)
+        self.pending = []
+        self.last_text = text
         self.last_seen = now
         print(f"\n> {text}", flush=True)
         self.speaker.say(text)
@@ -475,9 +1058,54 @@ class Reader:
         finally:
             if self.pipeline:
                 self.pipeline.set_state(Gst.State.NULL)
+            self.speaker.stop()
+
+
+def check_xtts(args):
+    """Vérifie de quoi XTTS a besoin, dans le fil principal.
+
+    Ces contrôles ne peuvent pas vivre dans le moteur : celui-ci est
+    construit par le fil « Speaker », où « sys.exit » ne fait que lever un
+    SystemExit avalé en silence par threading — le message n'apparaîtrait
+    jamais et le programme continuerait sans voix. Vérifié.
+    """
+    # Une voix est soit le nom d'une des voix du modèle, soit le chemin d'un
+    # WAV à cloner. Un chemin qui ressemble à un fichier mais n'existe pas
+    # est une faute de frappe, pas un nom de voix : le dire tout de suite.
+    for option, voice in (
+        ("--voice-sample", args.voice_sample),
+        ("--narration-sample", args.narration_sample),
+    ):
+        if voice.endswith(".wav") and not os.path.isfile(voice):
+            sys.exit(f"Échantillon introuvable pour {option} : {voice}")
+
+    # XTTS pèse environ 3 Go : il est tenu hors du venv du projet, donc
+    # l'absence de torch est le cas courant, pas l'accident. Le dire ici
+    # plutôt que de laisser remonter un ModuleNotFoundError nu.
+    try:
+        import torch
+    except ModuleNotFoundError:
+        sys.exit(
+            "XTTS n'est pas installé dans cet environnement : "
+            "« pip install torch torchaudio 'coqui-tts[codec]' » "
+            "(voir le README, section XTTS-v2)."
+        )
+
+    # En processeur, le ratio serait environ dix fois pire : la synthèse
+    # prendrait plus longtemps que la réplique à dire, donc injouable.
+    if not torch.cuda.is_available():
+        sys.exit(
+            "XTTS demande CUDA : sur processeur la synthèse serait plus lente "
+            "que la parole. Essayez « --engine piper »."
+        )
 
 
 def build_engine(args):
+    if args.engine == "xtts":
+        return XttsEngine(
+            {"dialogue": args.voice_sample, "narration": args.narration_sample},
+            args.speed,
+        )
     if args.engine == "kokoro":
         return KokoroEngine(args.speed)
     return PiperEngine(
@@ -500,14 +1128,24 @@ def main():
     parser.add_argument(
         "--speed",
         type=float,
-        default=1.05,
-        help="durée de la parole : au-dessus de 1, plus lent",
+        default=1.22,
+        help="débit de la parole : au-dessus de 1, plus rapide",
     )
     parser.add_argument(
         "--engine",
-        choices=("piper", "kokoro"),
+        choices=("piper", "kokoro", "xtts"),
         default="piper",
         help="moteur de synthèse",
+    )
+    parser.add_argument(
+        "--voice-sample",
+        default=XTTS_VOICE,
+        help="voix du PNJ : nom d'une voix du modèle, ou WAV à cloner (xtts)",
+    )
+    parser.add_argument(
+        "--narration-sample",
+        default=XTTS_NARRATION,
+        help="voix des didascalies : nom ou WAV (xtts)",
     )
     parser.add_argument(
         "--pause",
@@ -532,6 +1170,11 @@ def main():
         text = find_dialog(frame)
         print(clean(text) if text else "Aucun dialogue détecté.")
         return
+
+    # Avant de lancer la capture : une fois le fil parti, plus aucun
+    # message d'erreur du moteur n'atteindrait l'utilisateur.
+    if args.engine == "xtts":
+        check_xtts(args)
 
     Reader(args).run()
 
