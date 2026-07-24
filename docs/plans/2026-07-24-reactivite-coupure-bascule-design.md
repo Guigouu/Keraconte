@@ -22,8 +22,16 @@ Deux transitions de lecture sont trop lentes, mesurées à `--fps 2` :
   *ou* menu par-dessus — déclenche la même coupure. Il n'y a plus de
   « disparition passagère à protéger ».
 - **Cadence.** Monter `--fps` à **4** par défaut. Regarder l'écran quatre fois
-  par seconde suffit à couper en ~0,25 s, sans ajouter de voie de sondage
-  séparée. Si le coût CPU pose problème plus tard, on optimisera alors.
+  par seconde suffit à couper vite, sans ajouter de voie de sondage séparée. Si
+  le coût CPU pose problème plus tard, on optimisera alors.
+- **Seuil de coupure : 2 images**, mesuré. `find_bubbles` (détection par
+  couleur) est robuste au bruit léger et à la compression JPEG même à qualité
+  50, mais peut rater une image sous bruit gaussien fort (σ≥5). Couper dès la
+  1ʳᵉ image (0,25 s) supprimerait toute tolérance à ce flicker détecteur, que
+  monter le fps à 4 rend deux fois plus probable par dialogue. Deux images à
+  fps 4 = **0,5 s** : toujours sous la demi-seconde demandée, avec une image de
+  tolérance. Assurance bon marché contre une coupure en plein milieu d'une
+  réplique.
 
 ## Note sur l'« écriture progressive »
 
@@ -41,8 +49,13 @@ change pas. Hors périmètre de cette tâche.
 ### 1. Coupure rapide à la fermeture
 
 - `--fps` par défaut passe de 2 à **4**.
-- La coupure se déclenche dès la **1ʳᵉ** image sans bulle (`CLOSED_AFTER`
-  retiré ou ramené à 1).
+- La coupure se déclenche après **2** images sans bulle (au lieu de 3). Le
+  compteur `CLOSED_AFTER` est **retiré** (et non ramené à une valeur) : chaque
+  référence lève alors une erreur franche, forçant à revisiter explicitement
+  chaque site plutôt que laisser des tests passer à vide.
+- La sémantique « une seule fois par disparition » est préservée : la coupure
+  doit se déclencher exactement une fois quand le seuil est atteint, pas à
+  chaque image absente au-delà.
 - **Garde-fou inchangé.** On ne coupe que si `find_bubbles` — détection par
   couleur, sans OCR — ne voit **aucun** bloc bleu/neutre. Si un bloc est
   présent mais que l'OCR échoue, on ne coupe pas : c'est la même réplique qui
