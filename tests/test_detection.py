@@ -340,21 +340,14 @@ def test_la_ponctuation_forte_survit_au_filtre(signe):
     assert keep_word(signe, 90) is True
 
 
-@pytest.mark.xfail(
-    reason="Bug de segmentation connu : la bulle et le bloc de réponses se "
-    "touchent, la morphologie les soude en un seul contour, et l'appariement "
-    "dialogue/réponses ne trouve plus sa paire. Six pistes de réglage "
-    "explorées et écartées (hauteur, écart interne, kernel, is_reply_block sur "
-    "moitiés, liseré, cartouche) : aucun signal scalaire ne sépare un dialogue "
-    "fusionné du chat ou d'un panneau, le thème s'appliquant à toutes les "
-    "fenêtres. Le fix vise à re-segmenter finement pour retrouver deux "
-    "contours et rendre l'appariement — qui marche partout ailleurs.",
-    strict=True,
-)
 def test_lit_un_dialogue_fondu_a_ses_reponses():
     """Bulle et réponses soudées en un contour : le dialogue doit rester lu.
 
     Relevé en jeu chez Roukerol de Nerouz : le dialogue n'était pas lu du tout.
+    La fermeture morphologique soudait la bulle au bloc de réponses en un seul
+    contour, et l'appariement ne trouvait plus sa paire. « splits_into_pair »
+    re-segmente le bloc à partir du masque d'avant fermeture pour retrouver la
+    paire, sans toucher au texte lu par l'OCR.
     """
     assert clean(find_dialog(load(ROUKEROL))) == ROUKEROL["expected"]
 

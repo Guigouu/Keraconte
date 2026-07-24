@@ -36,6 +36,13 @@ CLOSE_KERNEL = np.ones((3, 3), np.uint8)
 # deux se touchent, contre 218 px pour une bulle seule.
 MERGED_MIN_HEIGHT = 400
 
+# Un sous-contour issu de la re-segmentation n'est retenu que s'il fait au
+# moins cette fraction de la largeur du bloc et de sa hauteur : en deçà,
+# c'est une écharde de masque, pas une bulle ni un bloc de réponses. En
+# fractions du bloc, jamais en pixels : la résolution ne doit pas compter.
+SUB_MIN_WIDTH_RATIO = 0.4
+SUB_MIN_HEIGHT_RATIO = 0.06
+
 # Accepter un bloc sans réponses appariées ouvre la porte aux panneaux de
 # l'interface, isolés eux aussi : l'hôtel des ventes et les enclos se
 # faisaient lire. Un dialogue est fait de phrases, un panneau d'étiquettes
@@ -83,15 +90,13 @@ MIN_REPLY_LINE_GAP = 40
 LINE_TOLERANCE = 10
 
 
-def find_bubbles(frame):
-    """Repère les blocs qui ont l'aspect d'une bulle, sans lire leur texte.
+def bubble_mask(frame):
+    """Masque des aplats de bulle, avant la fermeture morphologique.
 
-    Séparé de « find_dialog » pour distinguer deux situations qu'un simple
-    « None » confondait : la bulle a disparu de l'écran, ou elle est bien là
-    mais l'OCR n'en a rien tiré. La première doit couper la voix, la seconde
-    surtout pas — c'est la même réplique qui continue de s'afficher.
+    Isolé de « find_bubbles » pour être réutilisé tel quel sur un fragment
+    d'image : la re-segmentation fine (voir « splits_into_pair ») repart de
+    ce masque brut, sans la fermeture qui, elle, soude parfois deux blocs.
     """
-    height, width = frame.shape[:2]
     blue, green, red = cv2.split(frame.astype(np.int16))
     spread = np.maximum(np.maximum(blue, green), red) - np.minimum(
         np.minimum(blue, green), red
@@ -110,8 +115,22 @@ def find_bubbles(frame):
         & (value < BLUE_VALUE_MAX)
     )
     mask = (neutral | blueish).astype(np.uint8) * 255
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, OPEN_KERNEL)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, CLOSE_KERNEL)
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, OPEN_KERNEL)
+
+
+def find_bubbles(frame):
+    """Repère les blocs qui ont l'aspect d'une bulle, sans lire leur texte.
+
+    Séparé de « find_dialog » pour distinguer deux situations qu'un simple
+    « None » confondait : la bulle a disparu de l'écran, ou elle est bien là
+    mais l'OCR n'en a rien tiré. La première doit couper la voix, la seconde
+    surtout pas — c'est la même réplique qui continue de s'afficher.
+    """
+    height, width = frame.shape[:2]
+    # La fermeture soude les lignes d'un même bloc ; c'est elle aussi qui,
+    # quand bulle et réponses se touchent, les fond en un seul contour.
+    # « splits_into_pair » repart du masque d'avant pour les distinguer.
+    mask = cv2.morphologyEx(bubble_mask(frame), cv2.MORPH_CLOSE, CLOSE_KERNEL)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxes = []
@@ -127,6 +146,47 @@ def find_bubbles(frame):
 
     boxes.sort()
     return boxes, height
+
+
+def splits_into_pair(frame, box):
+    """Ce bloc unique cache-t-il une bulle soudée à ses réponses ?
+
+    Chez certains PNJ, bulle et réponses se touchent : la fermeture
+    morphologique globale les fond en un seul contour, et l'appariement
+    dialogue/réponses ne trouve plus sa paire — le dialogue passe inaperçu.
+    Un seuil de hauteur ne les rattrape pas : le chat et les panneaux de
+    l'interface atteignent la même hauteur sans être des dialogues.
+
+    On repart donc du masque d'avant fermeture, restreint à ce seul bloc :
+    sans la fermeture qui les soudait, la bulle et les réponses redeviennent
+    deux contours distincts, et l'appariement habituel — le seul signal
+    fiable, relationnel — s'applique à nouveau. Un vrai bloc isolé (chat,
+    panneau, bulle sans réponses) ne se scinde pas : il n'a pas cette paire.
+
+    L'OCR, lui, continue de lire le bloc entier inchangé : cette
+    re-segmentation ne sert qu'à décider s'il existe une paire, jamais à
+    recadrer le texte.
+    """
+    y, x, w, h = box
+    region = bubble_mask(frame[y : y + h, x : x + w])
+    contours, _ = cv2.findContours(
+        region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    parts = []
+    for contour in contours:
+        cx, cy, cw, ch = cv2.boundingRect(contour)
+        # Les échardes de masque sont écartées en proportion du bloc, pour
+        # ne dépendre d'aucune résolution.
+        if cw < w * SUB_MIN_WIDTH_RATIO or ch < h * SUB_MIN_HEIGHT_RATIO:
+            continue
+        parts.append((cy, cx, cw, ch))
+    parts.sort()
+    # L'appariement est celui de « is_reply_block », inchangé : un bloc de
+    # réponses aligné, de largeur voisine, juste sous le texte.
+    for above_index, above in enumerate(parts):
+        if any(is_reply_block(above, below) for below in parts[above_index + 1 :]):
+            return True
+    return False
 
 
 def find_dialog(frame):
@@ -149,10 +209,18 @@ def find_dialog(frame):
             ),
             None,
         )
-        # Quand les deux blocs se touchent, la morphologie les fond en un
-        # seul : la paire manque alors, mais la hauteur la trahit.
-        if replies is None and h < MERGED_MIN_HEIGHT:
-            continue
+        # Quand les deux blocs se touchent, la fermeture les fond en un seul :
+        # la paire manque alors. On la rattrape en re-segmentant finement le
+        # bloc, ce qui rend la bulle et les réponses comme deux contours et
+        # rétablit l'appariement. La hauteur reste un pré-filtre bon marché,
+        # mais roukerol (314 px) passe sous son seuil : la re-segmentation
+        # tranche le cas où la hauteur ne suffit pas.
+        if replies is None:
+            merged = h >= MERGED_MIN_HEIGHT or splits_into_pair(
+                frame, (y, x, w, h)
+            )
+            if not merged:
+                continue
         region = frame[y : y + h, x : x + w]
         white = (region > 200).all(2).mean()
         if not MIN_WHITE_RATIO <= white <= MAX_WHITE_RATIO:
