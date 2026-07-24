@@ -354,7 +354,7 @@ def images(reader, textes, bulle_presente=False):
     """
     for texte in textes:
         frame = ecran(texte is not None or bulle_presente)
-        with mock.patch("quest_reader.find_dialog", return_value=texte):
+        with mock.patch("quest_reader._legacy.find_dialog", return_value=texte):
             reader.handle(frame)
     return [appel.args[0] for appel in reader.speaker.say.call_args_list]
 
