@@ -35,17 +35,17 @@ import dbus  # noqa: E402
 import dbus.mainloop.glib  # noqa: E402
 
 TOKEN_FILE = os.path.expanduser("~/.cache/quest-reader/restore-token")
-VOICES = pathlib.Path(os.path.expanduser("~/.local/share/piper-voices"))
-KOKORO_DIR = pathlib.Path(os.path.expanduser("~/.local/share/kokoro"))
-KOKORO_MODEL = KOKORO_DIR / "kokoro.onnx"
-KOKORO_VOICES = KOKORO_DIR / "voices.bin"
 
-# Voix par défaut de XTTS, prises parmi celles du modèle. Cloner un
-# échantillon reste possible, mais donne un rendu inférieur : les voix
-# intégrées viennent d'enregistrements humains, pas d'une autre synthèse.
-XTTS_VOICE = "Damien Black"
-XTTS_NARRATION = "Sofia Hellen"
-
+from quest_reader.engines import (  # noqa: E402
+    VOICES,
+    XTTS_NARRATION,
+    XTTS_VOICE,
+    PiperEngine,
+    XttsEngine,
+    build_engine,
+    check_xtts,
+)
+from quest_reader.engines.xtts import voice_argument  # noqa: E402
 from quest_reader.text import (  # noqa: E402
     clean,
     clearest,
@@ -69,180 +69,6 @@ from quest_reader.detection import (  # noqa: E402
     reads_like_dialogue,
 )
 from quest_reader.playback import Playback, play_wave, playback  # noqa: E402
-
-
-class PiperEngine:
-    """Voix masculine, rapide, mais qui marque mal la ponctuation.
-
-    D'où le découpage : chaque phrase est synthétisée à part, puis suivie
-    d'un silence. Laisser Piper lire un paragraphe entier donne un débit
-    sans respiration.
-    """
-
-    def __init__(self, voices, speed, pause):
-        from piper import PiperVoice, SynthesisConfig
-
-        # Piper raisonne en durée : au-dessus de 1, il ralentit. On expose
-        # un débit, donc on inverse.
-        self.config = SynthesisConfig(length_scale=1 / speed)
-        self.voices = {kind: PiperVoice.load(path) for kind, path in voices.items()}
-        self.pause = pause
-
-    def speak(self, text, narration):
-        voice = self.voices["narration" if narration else "dialogue"]
-        for sentence in split_sentences(pronounce(text)):
-            # Le découpage isole parfois une ponctuation seule (« Ah… ! »).
-            if not speakable(sentence):
-                continue
-            if playback.stopped:  # dialogue fermé en cours de réplique
-                return
-            with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
-                with wave.open(handle.name, "wb") as output:
-                    voice.synthesize_wav(sentence, output, syn_config=self.config)
-                play_wave(handle.name)
-            time.sleep(self.pause / 1000)
-
-
-class KokoroEngine:
-    """Respecte mieux la ponctuation, mais n'a qu'une voix française.
-
-    Faute d'une seconde voix, les didascalies se distinguent par un débit
-    plus lent. Le modèle tourne sur le processeur : la carte graphique est
-    réservée au jeu.
-    """
-
-    VOICE = "ff_siwis"
-    # Seul signe distinctif des didascalies faute d'une seconde voix : il
-    # faut donc que l'écart de débit s'entende nettement.
-    NARRATION_SLOWDOWN = 0.75
-
-    def __init__(self, speed):
-        from kokoro_onnx import Kokoro
-
-        self.kokoro = Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
-        self.speed = speed
-
-    def speak(self, text, narration):
-        import soundfile
-
-        spoken = pronounce(text)
-        # Sans phonème à concaténer, « create » lève au lieu de se taire.
-        if not speakable(spoken):
-            return
-        speed = self.speed
-        if narration:
-            speed *= self.NARRATION_SLOWDOWN
-        samples, rate = self.kokoro.create(
-            spoken, voice=self.VOICE, lang="fr-fr", speed=speed
-        )
-        with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
-            soundfile.write(handle.name, samples, rate)
-            play_wave(handle.name)
-
-
-def voice_argument(voice):
-    """Traduit une voix en argument pour XTTS.
-
-    Le modèle embarque cinquante-huit voix humaines : les nommer donne un
-    bien meilleur rendu que cloner un échantillon, surtout si celui-ci
-    provient déjà d'une synthèse — les défauts s'y accumulent.
-    """
-    if os.path.isfile(voice):
-        return {"speaker_wav": voice}
-    return {"speaker": voice}
-
-
-class XttsEngine:
-    """Clone deux voix à partir d'échantillons WAV, sur la carte graphique.
-
-    Mesuré sur RTX 3070 Ti : ratio 0,24× — la synthèse va quatre fois plus
-    vite que la parole — pour 1,96 Go de VRAM. Le découpage par phrases,
-    comme chez Piper, rend l'attente imperceptible malgré les 83 s de
-    chargement initial, payées une seule fois dans le fil « Speaker ».
-    """
-
-    MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
-
-    def __init__(self, samples, speed):
-        # Import tardif, comme les autres moteurs : le venv du projet n'a
-        # pas torch, et l'importer au niveau module casserait tout le reste.
-        import torch
-        import transformers.pytorch_utils as pu
-
-        # Rustine obligatoire. Coqui importe « isin_mps_friendly » depuis
-        # transformers, qui l'a retiré en 5.x : sans elle, « from TTS.api
-        # import TTS » lève ImportError. XTTS ne s'en sert pas, mais le
-        # module fautif (tortoise) est chargé au passage. Les arguments
-        # sont passés par mot-clé, d'où cette signature exacte.
-        if not hasattr(pu, "isin_mps_friendly"):
-            pu.isin_mps_friendly = lambda elements, test_elements: torch.isin(
-                elements, test_elements
-            )
-
-        from TTS.api import TTS
-
-        self.tts = TTS(self.MODEL).to("cuda")
-        self.samples = samples
-        self.speed = speed
-        # Un seul fil : deux synthèses simultanées se disputeraient la carte
-        # sans rien gagner. Il ne sert qu'à prendre une phrase d'avance.
-        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-
-    def render(self, sentence, sample, path):
-        # Pas de « no_grad » ici : Coqui l'applique déjà en interne. Mesuré —
-        # douze répliques d'affilée, avec et sans, la mémoire reste plate à
-        # 4,7 Go dans les deux cas.
-        #
-        # « speed » va déjà dans le sens du débit chez XTTS : au-dessus de 1,
-        # plus rapide. Pas d'inversion, contrairement à Piper qui raisonne
-        # en durée.
-        self.tts.tts_to_file(
-            text=sentence,
-            language="fr",
-            speed=self.speed,
-            file_path=path,
-            **voice_argument(sample),
-        )
-
-    def speak(self, text, narration):
-        """Synthétise la phrase suivante pendant que la précédente se joue.
-
-        « play_wave » bloque, et XTTS met environ une seconde et demie par
-        phrase : les enchaîner bout à bout laissait un silence entre chacune,
-        soit cinq trous dans une réplique un peu longue. Piper synthétise
-        trop vite pour que cela s'entende, d'où le découpage naïf d'origine.
-        """
-        sample = self.samples["narration" if narration else "dialogue"]
-        # Sans phonème, le moteur concatène une liste vide et lève.
-        sentences = [
-            sentence
-            for sentence in split_sentences(pronounce(text))
-            if speakable(sentence)
-        ]
-        with contextlib.ExitStack() as stack:
-            files = [
-                stack.enter_context(tempfile.NamedTemporaryFile(suffix=".wav"))
-                for _ in sentences
-            ]
-            avance = None
-            for position, sentence in enumerate(sentences):
-                # Inutile d'occuper la carte pour un dialogue déjà fermé :
-                # « Playback » refuserait de jouer le résultat.
-                if playback.stopped:
-                    break
-                if avance is None:
-                    self.render(sentence, sample, files[position].name)
-                else:
-                    avance.result()
-                suivante = position + 1
-                avance = (
-                    self.pool.submit(
-                        self.render, sentences[suivante], sample, files[suivante].name
-                    )
-                    if suivante < len(sentences)
-                    else None
-                )
-                play_wave(files[position].name)
 
 
 class Speaker(threading.Thread):
@@ -547,60 +373,6 @@ class Reader:
             if self.pipeline:
                 self.pipeline.set_state(Gst.State.NULL)
             self.speaker.stop()
-
-
-def check_xtts(args):
-    """Vérifie de quoi XTTS a besoin, dans le fil principal.
-
-    Ces contrôles ne peuvent pas vivre dans le moteur : celui-ci est
-    construit par le fil « Speaker », où « sys.exit » ne fait que lever un
-    SystemExit avalé en silence par threading — le message n'apparaîtrait
-    jamais et le programme continuerait sans voix. Vérifié.
-    """
-    # Une voix est soit le nom d'une des voix du modèle, soit le chemin d'un
-    # WAV à cloner. Un chemin qui ressemble à un fichier mais n'existe pas
-    # est une faute de frappe, pas un nom de voix : le dire tout de suite.
-    for option, voice in (
-        ("--voice-sample", args.voice_sample),
-        ("--narration-sample", args.narration_sample),
-    ):
-        if voice.endswith(".wav") and not os.path.isfile(voice):
-            sys.exit(f"Échantillon introuvable pour {option} : {voice}")
-
-    # XTTS pèse environ 3 Go : il est tenu hors du venv du projet, donc
-    # l'absence de torch est le cas courant, pas l'accident. Le dire ici
-    # plutôt que de laisser remonter un ModuleNotFoundError nu.
-    try:
-        import torch
-    except ModuleNotFoundError:
-        sys.exit(
-            "XTTS n'est pas installé dans cet environnement : "
-            "« pip install torch torchaudio 'coqui-tts[codec]' » "
-            "(voir le README, section XTTS-v2)."
-        )
-
-    # En processeur, le ratio serait environ dix fois pire : la synthèse
-    # prendrait plus longtemps que la réplique à dire, donc injouable.
-    if not torch.cuda.is_available():
-        sys.exit(
-            "XTTS demande CUDA : sur processeur la synthèse serait plus lente "
-            "que la parole. Essayez « --engine piper »."
-        )
-
-
-def build_engine(args):
-    if args.engine == "xtts":
-        return XttsEngine(
-            {"dialogue": args.voice_sample, "narration": args.narration_sample},
-            args.speed,
-        )
-    if args.engine == "kokoro":
-        return KokoroEngine(args.speed)
-    return PiperEngine(
-        {"dialogue": args.voice, "narration": args.narration_voice},
-        args.speed,
-        args.pause,
-    )
 
 
 def main():
