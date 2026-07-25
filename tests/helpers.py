@@ -163,6 +163,14 @@ ROUKEROL = {
 }
 
 
+# Dialogue très court, apparié à ses réponses. « expected » reprend ce que
+# l'OCR rend vraiment (« toâ » ressort « toû. »), non le texte à l'écran.
+BWORKIDAIS = {
+    "file": "dialogue_bworkidais.png",
+    "expected": "Zog Zog à toû.",
+}
+
+
 def faux_xtts(rendus):
     """Remplace torch, transformers et TTS par des doublures.
 

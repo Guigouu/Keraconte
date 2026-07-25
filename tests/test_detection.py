@@ -25,6 +25,7 @@ from quest_reader.detection import (  # noqa: E402
 from quest_reader.text import clean, same_dialog  # noqa: E402
 from tests.helpers import (  # noqa: E402
     BRAKMAR,
+    BWORKIDAIS,
     CLIQUETIS,
     ENROLEMENT,
     FIXTURES,
@@ -350,4 +351,17 @@ def test_lit_un_dialogue_fondu_a_ses_reponses():
     paire, sans toucher au texte lu par l'OCR.
     """
     assert clean(find_dialog(load(ROUKEROL))) == ROUKEROL["expected"]
+
+
+def test_lit_un_dialogue_court_apparie_a_ses_reponses():
+    """Une réplique courte, appariée à ses réponses, doit rester lue.
+
+    Relevé en jeu chez Gobriel et un Bwork : « Zog Zog à toâ. » ou « Toâ
+    promis aider moâ. » n'étaient pas lus. La bulle était pourtant trouvée et
+    le bloc de réponses apparié : c'est le plancher « MIN_CHARS » qui, en bout
+    de course, écartait ces textes trop brefs. Or l'appariement — le signal
+    relationnel — a déjà prouvé que c'est un dialogue : le plancher long n'a
+    plus lieu d'être sur ce chemin.
+    """
+    assert clean(find_dialog(load(BWORKIDAIS))) == BWORKIDAIS["expected"]
 

@@ -81,7 +81,16 @@ MIN_PUNCTUATION_RATIO = 0.08
 # 300 px : 40000 / (2560×1350) et 300 / 2560.
 MIN_AREA_RATIO = 40000 / (2560 * 1350)
 MIN_WIDTH_RATIO = 300 / 2560
+# Plancher de longueur du texte lu. Deux valeurs selon la preuve accumulée :
+# sans réponses appariées, le bloc n'est admis que sur sa hauteur ou sa
+# ponctuation, et ce plancher écarte le bruit OCR d'un panneau (fragments
+# épars). Avec réponses appariées, le signal relationnel a déjà prouvé le
+# dialogue : un plancher long y rejetterait à tort les répliques courtes
+# (« Zog Zog à toâ. », 14 car.), relevées en jeu chez Gobriel et un Bwork. On
+# n'y garde qu'un plancher bas, juste de quoi écarter une écharde de deux ou
+# trois lettres.
 MIN_CHARS = 20
+MIN_CHARS_PAIRED = 6
 
 # Le texte de dialogue est blanc sur gris. Mesuré : 2.9 % dans une vraie
 # bulle contre 0.1 % pour un bloc d'interface sans texte.
@@ -296,7 +305,8 @@ def find_dialog(frame):
         if replies is None and not reads_like_dialogue(words):
             continue
         text = clean(" ".join(word["text"] for word in words))
-        if len(text) >= MIN_CHARS:
+        floor = MIN_CHARS if replies is None else MIN_CHARS_PAIRED
+        if len(text) >= floor:
             return text
     return None
 
