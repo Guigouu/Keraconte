@@ -53,16 +53,18 @@ class Overlay:
     vérifiés présents dans la police : « ⏸ » remplace deux barres collées.
     """
 
-    def __init__(self, state, couper, reselectionner):
+    def __init__(self, state, couper, reselectionner, fermer):
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QHBoxLayout, QPushButton
+        from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton
 
         self.state = state
         self.couper = couper
-        # La re-sélection n'est PAS une transition d'état de lecture : elle ne
-        # passe pas par PlayerState (qui reste le seul découplage de la
-        # lecture), mais par un callback à part, comme « couper ».
+        # La re-sélection et la fermeture ne sont PAS des transitions d'état de
+        # lecture : elles ne passent pas par PlayerState (qui reste le seul
+        # découplage de la lecture), mais par des callbacks à part, comme
+        # « couper ».
         self.reselectionner = reselectionner
+        self.fermer = fermer
 
         self.widget = _fenetre_deplacable()()
         self.widget.setWindowFlags(
@@ -70,20 +72,32 @@ class Overlay:
         )
         disposition = QHBoxLayout(self.widget)
 
+        # Poignée de déplacement : sans elle, les boutons couvrent toute la
+        # fenêtre et le glisser (mousePress sur le fond) n'attrape jamais rien.
+        # Ce label laisse une zone « vide » à saisir, à gauche.
+        self.poignee = QLabel("⠿")
+        self.poignee.setToolTip("Glisser pour déplacer")
+        disposition.addWidget(self.poignee)
+
         self.bouton_pause = QPushButton("⏸")
         self.bouton_stop = QPushButton("⏹")
         self.bouton_reprise = QPushButton("⏵")
         self.bouton_source = QPushButton("⟳")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
+        # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
+        self.bouton_fermer = QPushButton("✕")
+        self.bouton_fermer.setToolTip("Fermer")
         self.bouton_pause.clicked.connect(self.on_pause)
         self.bouton_stop.clicked.connect(self.on_stop)
         self.bouton_reprise.clicked.connect(self.on_reprise)
         self.bouton_source.clicked.connect(self.on_source)
+        self.bouton_fermer.clicked.connect(self.on_fermer)
         for bouton in (
             self.bouton_pause,
             self.bouton_stop,
             self.bouton_reprise,
             self.bouton_source,
+            self.bouton_fermer,
         ):
             disposition.addWidget(bouton)
 
@@ -106,6 +120,10 @@ class Overlay:
     def on_source(self):
         """Rouvre le sélecteur de source (fenêtre ou écran)."""
         self.reselectionner()
+
+    def on_fermer(self):
+        """Ferme l'application (arrêt propre orchestré par __main__)."""
+        self.fermer()
 
     def _rafraichir(self):
         """Grise le bouton correspondant à l'état courant."""

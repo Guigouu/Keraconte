@@ -26,10 +26,17 @@ def app():
     yield application
 
 
-def _overlay(state, couper=lambda: None, reselectionner=lambda: None):
+def _overlay(
+    state,
+    couper=lambda: None,
+    reselectionner=lambda: None,
+    fermer=lambda: None,
+):
     from quest_reader.overlay import Overlay
 
-    return Overlay(state, couper=couper, reselectionner=reselectionner)
+    return Overlay(
+        state, couper=couper, reselectionner=reselectionner, fermer=fermer
+    )
 
 
 def test_pause_ecrit_en_pause(app):
@@ -64,6 +71,16 @@ def test_le_bouton_source_declenche_la_reselection(app):
     overlay.on_source()
     assert appels == [True]
     assert state.etat is Etat.ACTIF  # la re-sélection n'est pas une transition
+
+
+def test_le_bouton_fermer_declenche_la_fermeture(app):
+    """✕ appelle le callback de fermeture, sans toucher à l'état."""
+    state = PlayerState()
+    appels = []
+    overlay = _overlay(state, fermer=lambda: appels.append(True))
+    overlay.on_fermer()
+    assert appels == [True]
+    assert state.etat is Etat.ACTIF
 
 
 class _FauxEvenement:
