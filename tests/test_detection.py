@@ -37,7 +37,6 @@ from tests.helpers import (  # noqa: E402
     SAMPLES,
     THEME_BLEU,
     TOKAGEKO,
-    FauxProcessus,
     ecran,
     erase,
     faux_xtts,

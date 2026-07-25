@@ -112,17 +112,30 @@ def images(reader, textes, bulle_presente=False):
     return [appel.args[0] for appel in reader.speaker.say.call_args_list]
 
 
-class FauxProcessus:
-    """Tient le rôle de paplay : on veut savoir s'il a été interrompu."""
+class FauxSortie:
+    """Tient le rôle du flux sounddevice : enregistre les tranches écrites.
+
+    « paplay » jouait un fichier d'un bloc ; on lit désormais par tranches et
+    on écrit chacune dans un « OutputStream ». On veut savoir combien de
+    tranches sont parties (donc si la lecture s'est bien abandonnée à un
+    changement de génération) et si le flux a été fermé proprement.
+    """
 
     def __init__(self):
-        self.tue = False
+        self.tranches = 0
+        self.ferme = False
 
-    def terminate(self):
-        self.tue = True
+    def start(self):
+        pass
 
-    def wait(self):
-        return 0
+    def write(self, tranche):
+        self.tranches += 1
+
+    def stop(self):
+        pass
+
+    def close(self):
+        self.ferme = True
 
 
 CLIQUETIS = {
