@@ -110,6 +110,21 @@ def test_la_pause_bloque_avant_la_tranche_suivante():
     assert sortie.tranches == 10
 
 
+def test_sans_peripherique_audio_l_app_continue():
+    """Pas de périphérique / sounddevice absent : « play » le signale et
+    revient sans lever (le design veut que l'app continue de tourner)."""
+    pb = _playback()
+    gen = pb.begin()
+    with mock.patch.object(
+        pb, "_lire_wav", return_value=FAUX_WAV
+    ), mock.patch.object(
+        pb, "_ouvrir_sortie", side_effect=OSError("PortAudio absent")
+    ):
+        pb.play("/tmp/x.wav", gen)  # ne doit pas lever
+    # Le flux n'a pas pu s'ouvrir : rien n'est resté accroché.
+    assert pb.current is None
+
+
 def test_bump_coupe_le_flux_en_cours():
     """bump() ferme le flux courant, comme il tuait le processus avant."""
     pb = _playback()

@@ -85,10 +85,18 @@ class Playback:
 
         # Ouverture du flux sous lock (comme le Popen d'avant), pour que
         # « bump » puisse le fermer. La BOUCLE, elle, tourne hors lock.
+        # L'ouverture peut échouer (« import sounddevice » lève OSError sans
+        # PortAudio ; « OutputStream » sans périphérique) : on le signale et
+        # l'app continue, comme le design le demande — sans laisser
+        # « self.current » accroché à un flux mort.
         with self.lock:
             if generation != self.generation:
                 return
-            flux = self._ouvrir_sortie(frequence, canaux)
+            try:
+                flux = self._ouvrir_sortie(frequence, canaux)
+            except Exception as erreur:
+                print(f"lecture audio impossible : {erreur}")
+                return
             self.current = flux
         try:
             for debut in range(0, len(echantillons), taille):
