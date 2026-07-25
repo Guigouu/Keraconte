@@ -113,6 +113,12 @@ MAX_REPLY_GAP_RATIO = 160 / REF_BUBBLE_WIDTH
 MAX_REPLY_OVERLAP_RATIO = 40 / REF_BUBBLE_WIDTH
 ALIGN_TOLERANCE_RATIO = 60 / REF_BUBBLE_WIDTH
 
+# Tolérance pour reconnaître « la même boîte » d'une image à l'autre : une
+# bulle dont l'OCR cligne reste au même endroit, à quelques pixels de gigue
+# de contour près. En fraction des dimensions de la boîte, jamais en pixels :
+# la gigue suit la taille de la bulle, donc la résolution.
+SAME_BOX_TOLERANCE = 0.2
+
 # Bordure ignorée à l'OCR, pour écarter les icônes des coins.
 MARGIN = 34
 
@@ -250,7 +256,19 @@ def splits_into_pair(frame, box):
 
 
 def find_dialog(frame):
-    """Renvoie le texte de la bulle de dialogue, ou None.
+    """Renvoie le texte de la bulle de dialogue, ou None."""
+    text, _ = find_dialog_box(frame)
+    return text
+
+
+def find_dialog_box(frame):
+    """Renvoie (texte, boîte) de la bulle de dialogue, ou (None, None).
+
+    La boîte — (y, x, w, h) du contour lu — sert au lecteur à savoir, quand
+    l'OCR redevient muet, si c'est bien CETTE bulle qui est encore à l'écran
+    ou seulement le décor (chat, barre de sorts) : eux n'occupent jamais sa
+    place. Sans ce repère, la présence d'un panneau permanent empêchait la
+    voix de se couper à la fermeture du dialogue.
 
     Le bloc de réponses partage l'aspect de la bulle : on ne garde que le
     bloc le plus haut, qui est toujours le dialogue lui-même.
@@ -307,8 +325,32 @@ def find_dialog(frame):
         text = clean(" ".join(word["text"] for word in words))
         floor = MIN_CHARS if replies is None else MIN_CHARS_PAIRED
         if len(text) >= floor:
-            return text
-    return None
+            return text, (y, x, w, h)
+    return None, None
+
+
+def bubble_still_there(frame, box):
+    """La bulle lue à « box » occupe-t-elle toujours sa place à l'écran ?
+
+    Sert quand l'OCR redevient muet : on ne coupe la voix que si CETTE bulle
+    a disparu, pas si un autre bloc (chat, barre de sorts) subsiste — eux ne
+    tiennent jamais la place de la bulle. Un simple « une bulle existe » ne
+    suffisait pas : ces panneaux permanents comptaient comme une bulle et
+    empêchaient toute coupure à la fermeture du dialogue.
+    """
+    if box is None:
+        return False
+    y, x, w, h = box
+    boxes, _ = find_bubbles(frame)
+    for (cy, cx, cw, ch) in boxes:
+        if (
+            abs(cx - x) <= w * SAME_BOX_TOLERANCE
+            and abs(cy - y) <= h * SAME_BOX_TOLERANCE
+            and abs(cw - w) <= w * SAME_BOX_TOLERANCE
+            and abs(ch - h) <= h * SAME_BOX_TOLERANCE
+        ):
+            return True
+    return False
 
 
 def reads_like_dialogue(words):

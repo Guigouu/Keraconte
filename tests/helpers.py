@@ -12,6 +12,7 @@ from unittest import mock
 import cv2
 
 from quest_reader import Reader, clean
+from quest_reader.detection import find_bubbles
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -67,6 +68,7 @@ def lecteur_nu(**etat):
     reader.speaker = mock.Mock()
     reader.missing = 0
     reader.last_text = None
+    reader.last_box = None
     reader.last_seen = 0.0
     reader.pending = []
     reader.args = types.SimpleNamespace(repeat_after=30)
@@ -93,10 +95,19 @@ def images(reader, textes, bulle_presente=False):
     Par défaut, une image sans texte est une image sans bulle — le joueur a
     fermé la fenêtre. « bulle_presente » simule au contraire un OCR muet
     devant une bulle toujours affichée.
+
+    On ne simule que l'OCR (« find_dialog_box ») : la présence de la bulle,
+    elle, est jugée sur la vraie image par le code réel, sur laquelle repose
+    la coupure. La boîte rendue est celle que « find_bubbles » voit sur cette
+    image, pour que le lecteur retrouve la même à l'image suivante.
     """
+    boite = find_bubbles(load(THEME_BLEU))[0][0]
     for texte in textes:
         frame = ecran(texte is not None or bulle_presente)
-        with mock.patch("quest_reader.reader.find_dialog", return_value=texte):
+        resultat = (texte, boite) if texte is not None else (None, None)
+        with mock.patch(
+            "quest_reader.reader.find_dialog_box", return_value=resultat
+        ):
             reader.handle(frame)
     return [appel.args[0] for appel in reader.speaker.say.call_args_list]
 
@@ -165,9 +176,15 @@ ROUKEROL = {
 
 # Dialogue très court, apparié à ses réponses. « expected » reprend ce que
 # l'OCR rend vraiment (« toâ » ressort « toû. »), non le texte à l'écran.
+# Capture PLEINE (2560×1346) : chat et barre de sorts sont à l'écran, ce
+# qu'un crop ne contient pas — indispensable pour éprouver la coupure, que
+# ces panneaux permanents empêchaient. « dialogue »/« replies » sont au
+# format de « erase » (x, y, w, h), pour simuler la fermeture de la fenêtre.
 BWORKIDAIS = {
     "file": "dialogue_bworkidais.png",
     "expected": "Zog Zog à toû.",
+    "dialogue": (1109, 333, 576, 102),
+    "replies": (1125, 457, 559, 113),
 }
 
 

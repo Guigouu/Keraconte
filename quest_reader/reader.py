@@ -17,7 +17,10 @@ from gi.repository import Gst, GLib  # noqa: E402
 import dbus.mainloop.glib  # noqa: E402
 
 from quest_reader.capture import ScreenCast  # noqa: E402
-from quest_reader.detection import find_bubbles, find_dialog  # noqa: E402
+from quest_reader.detection import (  # noqa: E402
+    bubble_still_there,
+    find_dialog_box,
+)
 from quest_reader.engines import build_engine  # noqa: E402
 from quest_reader.speaker import Speaker  # noqa: E402
 from quest_reader.text import clean, clearest, same_dialog  # noqa: E402
@@ -32,6 +35,9 @@ class Reader:
         self.speaker = Speaker(lambda: build_engine(args))
         self.speaker.start()
         self.last_text = None
+        # Position de la dernière bulle lue : sert à savoir, quand l'OCR
+        # redevient muet, si c'est toujours elle qui est à l'écran.
+        self.last_box = None
         self.last_seen = 0.0
         self.missing = 0
         # Texte vu à l'image précédente, pas encore lu : on attend de voir
@@ -78,16 +84,17 @@ class Reader:
         return Gst.FlowReturn.OK
 
     def handle(self, frame):
-        text = find_dialog(frame)
+        text, box = find_dialog_box(frame)
         if not text:
             # Ne couper que si la bulle a vraiment quitté l'écran. L'OCR
             # échoue régulièrement sur une bulle bien présente — texte en
             # cours d'affichage, rafraîchissement — et couper là-dessus
             # arrêtait la voix au milieu d'une réplique qui n'avait pas
             # changé, sans jamais reprendre puisque le texte au retour est
-            # reconnu comme déjà lu.
-            boxes, _ = find_bubbles(frame)
-            if boxes:
+            # reconnu comme déjà lu. On vérifie que c'est bien LA bulle lue
+            # qui est encore là, et non le décor : le chat et la barre de
+            # sorts ressemblent à des bulles, mais n'occupent pas sa place.
+            if bubble_still_there(frame, self.last_box):
                 return
             # Deux images sans bulle avant de couper. À --fps 4 cela fait une
             # demi-seconde : assez pour absorber un raté de détection isolé
@@ -103,8 +110,17 @@ class Reader:
                 # retour — quatre fois pour une réplique un peu longue. C'est
                 # « repeat_after » qui autorise une relecture, pas l'oubli.
                 self.pending = []
+                # « last_box », lui, n'a plus lieu d'être : la bulle est bel
+                # et bien partie. Le garder ferait qu'une bulle d'un autre PNJ
+                # tombant à la même place (l'OCR clignant à sa première image)
+                # passerait pour l'ancienne, et la coupure suivante manquerait.
+                self.last_box = None
             return
         self.missing = 0
+        # La bulle est là : on retient sa place, même si le texte n'est pas
+        # encore lu (il s'écrit peut-être encore). C'est ce repère qui, à
+        # l'image suivante où l'OCR se tait, dira que la bulle est toujours là.
+        self.last_box = box
         text = clean(text)
         now = time.time()
         # Même dialogue tant qu'il reste affiché : ne pas relire en boucle.

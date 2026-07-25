@@ -11,11 +11,16 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from quest_reader import Reader  # noqa: E402
 from quest_reader.text import clean  # noqa: E402
+from unittest import mock  # noqa: E402
+
 from tests.helpers import (  # noqa: E402
+    BWORKIDAIS,
     HERCULE,
     HERCULE_PERMUTE,
+    erase,
     images,
     lecteur_nu,
+    load,
 )
 
 
@@ -156,6 +161,72 @@ def test_la_bulle_qui_quitte_l_ecran_coupe_toujours():
     texte = "Tu ne vois pas que je suis en patrouille ?"
     images(reader, [texte] * 2 + [None] * 2)
     reader.speaker.silence.assert_called_once()
+
+
+def test_la_fermeture_coupe_malgre_le_chat_et_la_barre():
+    """Sur une vraie capture, fermer le dialogue coupe la voix.
+
+    Relevé en jeu : la voix allait jusqu'au bout de la réplique quand on
+    fermait la fenêtre. Le chat et la barre de sorts, bleus comme une bulle,
+    étaient vus par « find_bubbles » : « une bulle existe » restait donc vrai
+    en permanence et la coupure ne partait jamais. On ne coupe désormais que
+    si LA bulle lue a quitté sa place — ce que ces panneaux ne font pas.
+
+    Ce test tourne sur la capture pleine (chat + barre présents), là où un
+    crop ne verrait aucun panneau et laisserait le bug passer.
+    """
+    reader = lecteur_nu()
+    ouvert = load(BWORKIDAIS)
+    ferme = erase(erase(ouvert, BWORKIDAIS["dialogue"]), BWORKIDAIS["replies"])
+
+    # Image 1 : le dialogue est lu, sa place est retenue.
+    reader.handle(ouvert)
+    assert reader.last_box is not None
+    # Images 2-3 : fenêtre fermée, OCR muet, mais chat et barre subsistent.
+    with mock.patch(
+        "quest_reader.reader.find_dialog_box", return_value=(None, None)
+    ):
+        reader.handle(ferme)
+        reader.handle(ferme)
+    reader.speaker.silence.assert_called_once()
+
+
+def test_un_ocr_muet_sur_la_vraie_bulle_ne_coupe_pas():
+    """Le pendant du test ci-dessus : bulle toujours là, OCR muet, pas de coupe.
+
+    C'est le cas que la garde per-boîte doit épargner : la bulle occupe encore
+    sa place (l'OCR a seulement cligné), la voix ne doit pas s'arrêter.
+    """
+    reader = lecteur_nu()
+    ouvert = load(BWORKIDAIS)
+
+    reader.handle(ouvert)
+    with mock.patch(
+        "quest_reader.reader.find_dialog_box", return_value=(None, None)
+    ):
+        reader.handle(ouvert)
+        reader.handle(ouvert)
+    reader.speaker.silence.assert_not_called()
+
+
+def test_la_coupure_oublie_la_place_de_la_bulle():
+    """Après coupure, la place mémorisée ne doit plus retenir une coupure.
+
+    Sinon une bulle d'un autre PNJ tombant au même endroit, si l'OCR cligne à
+    sa première image, passerait pour l'ancienne et la voix ne se couperait
+    pas à sa fermeture.
+    """
+    reader = lecteur_nu()
+    ouvert = load(BWORKIDAIS)
+    ferme = erase(erase(ouvert, BWORKIDAIS["dialogue"]), BWORKIDAIS["replies"])
+
+    reader.handle(ouvert)
+    with mock.patch(
+        "quest_reader.reader.find_dialog_box", return_value=(None, None)
+    ):
+        reader.handle(ferme)
+        reader.handle(ferme)  # coupure ici
+    assert reader.last_box is None
 
 
 def test_rouvrir_le_dialogue_plus_tard_le_relit():
