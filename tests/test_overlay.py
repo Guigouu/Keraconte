@@ -54,3 +54,51 @@ def test_reprise_ecrit_actif(app):
     overlay = Overlay(state, couper=lambda: None)
     overlay.on_reprise()
     assert state.etat is Etat.ACTIF
+
+
+class _FauxEvenement:
+    """Tient le rôle d'un QMouseEvent pour piloter le glisser.
+
+    La fenêtre est sans bordure : Qt ne la déplace pas tout seul, on suit le
+    curseur à la main. On double l'événement pour vérifier le déplacement
+    sans vrai clic ni gestionnaire de fenêtres.
+    """
+
+    def __init__(self, point, bouton=None):
+        from PySide6.QtCore import Qt
+
+        self._point = point
+        self._bouton = bouton if bouton is not None else Qt.LeftButton
+
+    def button(self):
+        return self._bouton
+
+    def globalPosition(self):
+        point = self._point
+
+        class _Position:
+            def toPoint(self_inner):
+                return point
+
+        return _Position()
+
+
+def test_la_fenetre_se_deplace_au_glisser(app):
+    """Sans bordure, la fenêtre suit le curseur pendant le glisser."""
+    from PySide6.QtCore import QPoint
+
+    from quest_reader.overlay import Overlay
+
+    overlay = Overlay(PlayerState(), couper=lambda: None)
+    overlay.widget.move(100, 100)
+
+    overlay.widget.mousePressEvent(_FauxEvenement(QPoint(150, 150)))
+    overlay.widget.mouseMoveEvent(_FauxEvenement(QPoint(170, 190)))
+
+    # Déplacement du curseur : +20 en x, +40 en y → la fenêtre suit.
+    assert overlay.widget.pos() == QPoint(120, 140)
+
+    overlay.widget.mouseReleaseEvent(_FauxEvenement(QPoint(170, 190)))
+    overlay.widget.mouseMoveEvent(_FauxEvenement(QPoint(300, 300)))
+    # Bouton relâché : plus de glisser, la fenêtre ne bouge plus.
+    assert overlay.widget.pos() == QPoint(120, 140)

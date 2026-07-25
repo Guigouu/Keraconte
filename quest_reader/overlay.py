@@ -12,6 +12,38 @@ lourde qu'on ne charge qu'au lancement de l'interface.
 from quest_reader.state import Etat
 
 
+def _fenetre_deplacable():
+    """Fabrique la classe de fenêtre, tardivement (Qt importé ici).
+
+    Sans bordure, Qt ne déplace pas la fenêtre : le glisser se fait à la main.
+    On mémorise au clic l'écart entre le curseur et le coin, puis on recolle
+    ce coin au curseur à chaque mouvement — la fenêtre suit sans sauter.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+
+    class Fenetre(QWidget):
+        def __init__(self):
+            super().__init__()
+            self._prise = None  # écart curseur↔coin au clic, ou None au repos
+
+        def mousePressEvent(self, evenement):
+            if evenement.button() is Qt.LeftButton:
+                self._prise = (
+                    evenement.globalPosition().toPoint()
+                    - self.frameGeometry().topLeft()
+                )
+
+        def mouseMoveEvent(self, evenement):
+            if self._prise is not None:
+                self.move(evenement.globalPosition().toPoint() - self._prise)
+
+        def mouseReleaseEvent(self, evenement):
+            self._prise = None
+
+    return Fenetre
+
+
 class Overlay:
     """Trois boutons — ‖ ■ ▶ — qui pilotent l'état de lecture.
 
@@ -22,12 +54,12 @@ class Overlay:
 
     def __init__(self, state, couper):
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+        from PySide6.QtWidgets import QHBoxLayout, QPushButton
 
         self.state = state
         self.couper = couper
 
-        self.widget = QWidget()
+        self.widget = _fenetre_deplacable()()
         self.widget.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
