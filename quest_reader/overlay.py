@@ -12,36 +12,43 @@ lourde qu'on ne charge qu'au lancement de l'interface.
 from quest_reader.state import Etat
 
 
-def _fenetre_deplacable():
-    """Fabrique la classe de fenêtre, tardivement (Qt importé ici).
+def _poignee_deplacement(fenetre):
+    """Fabrique une poignée qui déplace la fenêtre, tardivement (Qt ici).
 
-    Sans bordure, Qt ne déplace pas la fenêtre : le glisser se fait à la main.
-    On mémorise au clic l'écart entre le curseur et le coin, puis on recolle
-    ce coin au curseur à chaque mouvement — la fenêtre suit sans sauter.
+    Le glisser DOIT être porté par la poignée elle-même, pas par la fenêtre :
+    Qt envoie les « mouseMove » au widget qui a reçu le « mousePress ». Un
+    QLabel nu accepte le press (donc ne le relaie pas à la fenêtre) mais n'a
+    pas de handler de mouvement — d'où une zone qui « ne s'attrape pas ». On
+    met donc les handlers ici, et l'on déplace « fenetre ».
+
+    On mémorise au clic l'écart entre le curseur et le coin de la fenêtre, puis
+    on recolle ce coin au curseur à chaque mouvement — la fenêtre suit sans
+    sauter.
     """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QLabel
 
-    class Fenetre(QWidget):
+    class Poignee(QLabel):
         def __init__(self):
-            super().__init__()
+            super().__init__("⠿")
+            self.setToolTip("Glisser pour déplacer")
             self._prise = None  # écart curseur↔coin au clic, ou None au repos
 
         def mousePressEvent(self, evenement):
             if evenement.button() is Qt.LeftButton:
                 self._prise = (
                     evenement.globalPosition().toPoint()
-                    - self.frameGeometry().topLeft()
+                    - fenetre.frameGeometry().topLeft()
                 )
 
         def mouseMoveEvent(self, evenement):
             if self._prise is not None:
-                self.move(evenement.globalPosition().toPoint() - self._prise)
+                fenetre.move(evenement.globalPosition().toPoint() - self._prise)
 
         def mouseReleaseEvent(self, evenement):
             self._prise = None
 
-    return Fenetre
+    return Poignee()
 
 
 class Overlay:
@@ -55,7 +62,7 @@ class Overlay:
 
     def __init__(self, state, couper, reselectionner, fermer):
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton
+        from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
         self.state = state
         self.couper = couper
@@ -66,17 +73,17 @@ class Overlay:
         self.reselectionner = reselectionner
         self.fermer = fermer
 
-        self.widget = _fenetre_deplacable()()
+        self.widget = QWidget()
         self.widget.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
         disposition = QHBoxLayout(self.widget)
 
         # Poignée de déplacement : sans elle, les boutons couvrent toute la
-        # fenêtre et le glisser (mousePress sur le fond) n'attrape jamais rien.
-        # Ce label laisse une zone « vide » à saisir, à gauche.
-        self.poignee = QLabel("⠿")
-        self.poignee.setToolTip("Glisser pour déplacer")
+        # fenêtre et il n'y a aucune zone à saisir. Le glisser est porté par la
+        # poignée elle-même (voir « _poignee_deplacement »), pas par la
+        # fenêtre — sans quoi le clic sur le label ne déplace rien.
+        self.poignee = _poignee_deplacement(self.widget)
         disposition.addWidget(self.poignee)
 
         self.bouton_pause = QPushButton("⏸")

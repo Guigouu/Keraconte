@@ -110,20 +110,26 @@ class _FauxEvenement:
         return _Position()
 
 
-def test_la_fenetre_se_deplace_au_glisser(app):
-    """Sans bordure, la fenêtre suit le curseur pendant le glisser."""
+def test_la_poignee_deplace_la_fenetre_au_glisser(app):
+    """Le glisser doit être porté par la POIGNÉE, pas par la fenêtre.
+
+    Vu en jeu : une poignée sans handlers propres n'attrapait rien — Qt envoie
+    les « mouseMove » au widget qui a reçu le « mousePress », donc au label, et
+    un label nu ne déplace pas la fenêtre. On glisse ici sur « overlay.poignee »
+    et l'on vérifie que c'est bien la FENÊTRE qui suit.
+    """
     from PySide6.QtCore import QPoint
 
     overlay = _overlay(PlayerState())
     overlay.widget.move(100, 100)
 
-    overlay.widget.mousePressEvent(_FauxEvenement(QPoint(150, 150)))
-    overlay.widget.mouseMoveEvent(_FauxEvenement(QPoint(170, 190)))
+    overlay.poignee.mousePressEvent(_FauxEvenement(QPoint(150, 150)))
+    overlay.poignee.mouseMoveEvent(_FauxEvenement(QPoint(170, 190)))
 
     # Déplacement du curseur : +20 en x, +40 en y → la fenêtre suit.
     assert overlay.widget.pos() == QPoint(120, 140)
 
-    overlay.widget.mouseReleaseEvent(_FauxEvenement(QPoint(170, 190)))
-    overlay.widget.mouseMoveEvent(_FauxEvenement(QPoint(300, 300)))
+    overlay.poignee.mouseReleaseEvent(_FauxEvenement(QPoint(170, 190)))
+    overlay.poignee.mouseMoveEvent(_FauxEvenement(QPoint(300, 300)))
     # Bouton relâché : plus de glisser, la fenêtre ne bouge plus.
     assert overlay.widget.pos() == QPoint(120, 140)
