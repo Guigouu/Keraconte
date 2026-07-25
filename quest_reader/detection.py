@@ -28,12 +28,33 @@ BLUE_VALUE_MIN, BLUE_VALUE_MAX = 30, 90
 # CLOSE doit rester étroit : à 5 et au-delà, il soude la bulle au bloc de
 # réponses quand l'écart est serré, et l'appariement ne trouve plus la
 # paire qu'il exige — le dialogue passe alors inaperçu.
+#
+# Ces tailles restent en pixels absolus, à dessein. Un noyau modifie ce que
+# l'OCR voit sur CHAQUE capture : le rendre relatif à la hauteur changerait
+# sa taille effective d'une fixture à l'autre. À 9/1350 puis 3/1350, les
+# crops (401 px de haut) recevraient un noyau de 3×3 et 1×1 au lieu de 9×9
+# et 3×3 — soit une tout autre segmentation, et un risque de régression OCR
+# ailleurs. On préfère l'absolu à ce prix.
 OPEN_KERNEL = np.ones((9, 9), np.uint8)
 CLOSE_KERNEL = np.ones((3, 3), np.uint8)
 
 # Au-delà, un bloc est trop haut pour un simple panneau : il porte le
 # dialogue et ses réponses soudés. Mesuré à 664 px sur une capture où les
 # deux se touchent, contre 218 px pour une bulle seule.
+#
+# Laissé en pixels absolus, à dessein — contrairement aux autres seuils
+# géométriques. Le rendre relatif suppose un rapport de forme (hauteur ÷
+# largeur), mais la géométrie l'interdit : la bulle soudée d'« enrolement »
+# a un rapport de 1,08, plus PLAT que les panneaux d'interface à écarter
+# (1,15 à 1,70). Aucun seuil de rapport ne sépare donc les deux. Cette
+# valeur absolue ne fonctionne que parce que, à la résolution des fixtures,
+# elle tombe dans l'intervalle (314, 664] entre roukerol — rattrapé par la
+# re-segmentation — et la bulle soudée. La rendre relative ferait basculer
+# un panneau d'enclos (346×399) dans la branche fusionnée, où seul le ratio
+# de blanc l'écarte encore, et de justesse (0,0052 contre un seuil de
+# 0,008). Un écran d'une autre résolution ne sera pas mieux servi, mais le
+# forcer casserait cet équilibre. À revoir avec une capture fusionnée prise
+# à une autre définition, pour caler un vrai seuil relatif.
 MERGED_MIN_HEIGHT = 400
 
 # Un sous-contour issu de la re-segmentation n'est retenu que s'il fait au
@@ -52,8 +73,14 @@ SUB_MIN_HEIGHT_RATIO = 0.06
 # même rapport largeur/hauteur qu'une bulle soudée à ses réponses.
 MIN_PUNCTUATION_RATIO = 0.08
 
-MIN_AREA = 40000
-MIN_WIDTH = 300
+# Taille minimale d'un bloc candidat, avant tout appariement : ici aucune
+# bulle n'est encore connue, la seule référence d'échelle est l'image. Une
+# aire est un produit largeur×hauteur : elle se rapporte donc à l'aire de
+# l'image (facteur au carré avec la résolution), la largeur à la largeur.
+# Calibrés sur 2560×1350, où l'aire minimale valait 40000 px² et la largeur
+# 300 px : 40000 / (2560×1350) et 300 / 2560.
+MIN_AREA_RATIO = 40000 / (2560 * 1350)
+MIN_WIDTH_RATIO = 300 / 2560
 MIN_CHARS = 20
 
 # Le texte de dialogue est blanc sur gris. Mesuré : 2.9 % dans une vraie
@@ -63,9 +90,19 @@ MAX_WHITE_RATIO = 0.15
 
 # Écart vertical entre la bulle et le bloc de réponses. Mesuré à -16 px :
 # les deux blocs se touchent, avec un léger recouvrement.
-MAX_REPLY_GAP = 160
-MAX_REPLY_OVERLAP = 40
-ALIGN_TOLERANCE = 60
+#
+# Exprimés en fraction de la largeur de la bulle, et non en pixels absolus :
+# c'est la seule référence stable d'une résolution à l'autre. La largeur de
+# la bulle vaut 555 à 633 px sur toutes les fixtures — pleines captures comme
+# crops — quand la largeur d'image, elle, varie du simple au triple. Un écran
+# deux fois plus défini donne une bulle deux fois plus large, et ces seuils
+# suivent. Calibrés sur une largeur de bulle de référence de 600 px, ils
+# reproduisent à moins de 6 % près les valeurs absolues d'origine (160, 40,
+# 60) sur les fixtures actuelles.
+REF_BUBBLE_WIDTH = 600
+MAX_REPLY_GAP_RATIO = 160 / REF_BUBBLE_WIDTH
+MAX_REPLY_OVERLAP_RATIO = 40 / REF_BUBBLE_WIDTH
+ALIGN_TOLERANCE_RATIO = 60 / REF_BUBBLE_WIDTH
 
 # Bordure ignorée à l'OCR, pour écarter les icônes des coins.
 MARGIN = 34
@@ -84,6 +121,16 @@ MAX_NOISE_LENGTH = 3
 # Interligne mesuré dans une bulle : 16 à 20 px. L'écart jusqu'au bloc de
 # réponses vaut 95 px sur la capture « enrolement ». Le seuil sépare les deux
 # sans les toucher.
+#
+# Ces deux seuils restent en pixels absolus, à dessein. « drop_replies »
+# travaille sur des ordonnées de mots, sans l'image ni le bloc sous la main :
+# aucune dimension de référence n'y est disponible. Et surtout, un interligne
+# suit la taille de la POLICE — donc la résolution de l'écran — et non la
+# hauteur de la bulle : le rapporter à la hauteur du bloc serait la mauvaise
+# référence, une bulle haute n'ayant pas un interligne plus large. Deux tests
+# appellent « drop_replies » avec des ordonnées écrites en dur ; les rendre
+# relatifs changerait sa signature. À caler sur la taille de police le jour
+# où on la mesure, pas sur une dimension d'image.
 MIN_REPLY_LINE_GAP = 40
 # Deux mots d'une même ligne diffèrent de quelques pixels en ordonnée : leurs
 # lignes de base ne coïncident pas au pixel près (mesuré jusqu'à 4 px).
@@ -133,10 +180,14 @@ def find_bubbles(frame):
     mask = cv2.morphologyEx(bubble_mask(frame), cv2.MORPH_CLOSE, CLOSE_KERNEL)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Seuils de taille rapportés aux dimensions de l'image : une aire à son
+    # aire, une largeur à sa largeur, pour suivre la résolution de l'écran.
+    min_area = MIN_AREA_RATIO * width * height
+    min_width = MIN_WIDTH_RATIO * width
     boxes = []
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        if w * h < MIN_AREA or w < MIN_WIDTH:
+        if w * h < min_area or w < min_width:
             continue
         # L'interface de droite touche le bord ; le reste (chat compris)
         # est écarté par l'exigence d'un bloc de réponses apparié.
@@ -372,11 +423,16 @@ def is_reply_block(dialog, candidate):
     """Le bloc candidat est-il la liste de réponses sous ce dialogue ?"""
     dialog_y, dialog_x, dialog_w, dialog_h = dialog
     y, x, w, _ = candidate
+    # Les seuils suivent la largeur de la bulle : pris en pixels absolus, ils
+    # se décalaient dès que la résolution de l'écran changeait.
+    max_overlap = dialog_w * MAX_REPLY_OVERLAP_RATIO
+    max_gap = dialog_w * MAX_REPLY_GAP_RATIO
+    align_tolerance = dialog_w * ALIGN_TOLERANCE_RATIO
     # Les deux blocs se chevauchent parfois de quelques pixels.
     gap = y - (dialog_y + dialog_h)
-    if not -MAX_REPLY_OVERLAP <= gap <= MAX_REPLY_GAP:
+    if not -max_overlap <= gap <= max_gap:
         return False
     # Les deux blocs partagent le même bord gauche et une largeur voisine.
-    if abs(x - dialog_x) > ALIGN_TOLERANCE:
+    if abs(x - dialog_x) > align_tolerance:
         return False
     return abs(w - dialog_w) <= dialog_w * 0.35
