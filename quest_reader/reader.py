@@ -45,6 +45,8 @@ class Reader:
         # s'il grandit encore avant de le confier à la synthèse.
         self.pending = []
         self.pipeline = None
+        self.cast = None
+        self.loop = None
 
     def on_node(self, fd, node_id):
         Gst.init(None)
@@ -161,15 +163,38 @@ class Reader:
         print(f"\n> {text}", flush=True)
         self.speaker.say(text)
 
-    def run(self):
+    def demarrer_capture(self):
+        """Lance la capture et rend la boucle GLib prête à tourner.
+
+        SIGINT n'est PAS installé ici : « signal.signal » ne fonctionne que
+        sur le thread principal, et cette méthode tourne dans un thread dédié
+        (l'overlay Qt tient le thread principal). L'arrêt vient de l'extérieur
+        via « self.loop.quit() » (voir __main__).
+        """
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        cast = ScreenCast(self.on_node)
-        cast.start()
-        loop = GLib.MainLoop()
-        signal.signal(signal.SIGINT, lambda *_: loop.quit())
+        self.cast = ScreenCast(self.on_node)
+        self.cast.start()
+        self.loop = GLib.MainLoop()
+
+    def boucler(self):
+        """Corps du thread de capture : fait tourner la boucle GLib."""
         try:
-            loop.run()
+            self.loop.run()
         finally:
             if self.pipeline:
                 self.pipeline.set_state(Gst.State.NULL)
             self.speaker.stop()
+
+    def arreter(self):
+        """Demande l'arrêt de la boucle GLib (appelé depuis un autre thread)."""
+        if getattr(self, "loop", None) is not None:
+            self.loop.quit()
+
+    def run(self):
+        """Lancement autonome (sans overlay), pour compat/débogage.
+
+        Installe SIGINT ici car on est alors sur le thread principal.
+        """
+        self.demarrer_capture()
+        signal.signal(signal.SIGINT, lambda *_: self.loop.quit())
+        self.boucler()

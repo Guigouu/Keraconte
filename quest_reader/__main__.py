@@ -82,7 +82,55 @@ def main():
     if args.engine == "xtts":
         check_xtts(args)
 
-    Reader(args).run()
+    lancer_avec_overlay(args)
+
+
+def lancer_avec_overlay(args):
+    """Qt sur le thread principal, la capture dans un thread dédié.
+
+    On n'unifie pas les boucles d'événements : on les isole. Qt tient le
+    thread principal (l'overlay), et la boucle GLib de capture descend dans un
+    thread. Ils ne communiquent qu'à travers PlayerState et le Speaker.
+    """
+    import signal
+    import threading
+
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+
+    from quest_reader.overlay import Overlay
+    from quest_reader.playback import player_state
+    from quest_reader.reader import Reader
+
+    app = QApplication(sys.argv)
+
+    reader = Reader(args)
+    reader.demarrer_capture()
+
+    # Le stop de l'overlay coupe la voix en cours.
+    overlay = Overlay(player_state, couper=reader.speaker.silence)
+    overlay.show()
+
+    fil_capture = threading.Thread(target=reader.boucler, daemon=True)
+    fil_capture.start()
+
+    # Ctrl+C : Qt ne rend pas la main aux handlers Python sans un réveil
+    # périodique de l'interpréteur.
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    reveil = QTimer()
+    reveil.timeout.connect(lambda: None)
+    reveil.start(200)
+
+    # Arrêt propre : à la fermeture de Qt, on arrête la boucle GLib et on
+    # attend la fin du thread de capture (qui met le pipeline à NULL et stoppe
+    # le Speaker dans son finally).
+    def au_depart():
+        reader.arreter()
+        fil_capture.join(timeout=5)
+
+    app.aboutToQuit.connect(au_depart)
+
+    app.exec()
 
 
 if __name__ == "__main__":
