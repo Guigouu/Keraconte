@@ -45,19 +45,24 @@ def _fenetre_deplacable():
 
 
 class Overlay:
-    """Trois boutons — ‖ ■ ▶ — qui pilotent l'état de lecture.
+    """Quatre boutons — ⏸ ⏹ ⏵ ⟳ — pilotent la lecture et la source.
 
     N'hérite pas de QWidget au niveau module (Qt importé tardivement) : la
     vraie fenêtre est construite dans « __init__ ». Les méthodes on_* sont
-    testables sans affichage réel.
+    testables sans affichage réel. Les glyphes média Unicode (U+23F8/9/5) sont
+    vérifiés présents dans la police : « ⏸ » remplace deux barres collées.
     """
 
-    def __init__(self, state, couper):
+    def __init__(self, state, couper, reselectionner):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QHBoxLayout, QPushButton
 
         self.state = state
         self.couper = couper
+        # La re-sélection n'est PAS une transition d'état de lecture : elle ne
+        # passe pas par PlayerState (qui reste le seul découplage de la
+        # lecture), mais par un callback à part, comme « couper ».
+        self.reselectionner = reselectionner
 
         self.widget = _fenetre_deplacable()()
         self.widget.setWindowFlags(
@@ -65,13 +70,21 @@ class Overlay:
         )
         disposition = QHBoxLayout(self.widget)
 
-        self.bouton_pause = QPushButton("‖")
-        self.bouton_stop = QPushButton("■")
-        self.bouton_reprise = QPushButton("▶")
+        self.bouton_pause = QPushButton("⏸")
+        self.bouton_stop = QPushButton("⏹")
+        self.bouton_reprise = QPushButton("⏵")
+        self.bouton_source = QPushButton("⟳")
+        self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
         self.bouton_pause.clicked.connect(self.on_pause)
         self.bouton_stop.clicked.connect(self.on_stop)
         self.bouton_reprise.clicked.connect(self.on_reprise)
-        for bouton in (self.bouton_pause, self.bouton_stop, self.bouton_reprise):
+        self.bouton_source.clicked.connect(self.on_source)
+        for bouton in (
+            self.bouton_pause,
+            self.bouton_stop,
+            self.bouton_reprise,
+            self.bouton_source,
+        ):
             disposition.addWidget(bouton)
 
         self._rafraichir()
@@ -89,6 +102,10 @@ class Overlay:
     def on_reprise(self):
         self.state.reprendre()
         self._rafraichir()
+
+    def on_source(self):
+        """Rouvre le sélecteur de source (fenêtre ou écran)."""
+        self.reselectionner()
 
     def _rafraichir(self):
         """Grise le bouton correspondant à l'état courant."""

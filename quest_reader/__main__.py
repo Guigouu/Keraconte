@@ -107,8 +107,13 @@ def lancer_avec_overlay(args):
     reader = Reader(args)
     reader.demarrer_capture()
 
-    # Le stop de l'overlay coupe la voix en cours.
-    overlay = Overlay(player_state, couper=reader.speaker.silence)
+    # Le stop de l'overlay coupe la voix en cours ; ⟳ rouvre le sélecteur de
+    # source (l'action est postée sur le thread GLib par le Reader).
+    overlay = Overlay(
+        player_state,
+        couper=reader.speaker.silence,
+        reselectionner=reader.demander_reselection,
+    )
     overlay.show()
 
     fil_capture = threading.Thread(target=reader.boucler, daemon=True)

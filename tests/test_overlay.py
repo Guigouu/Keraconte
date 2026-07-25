@@ -26,34 +26,44 @@ def app():
     yield application
 
 
-def test_pause_ecrit_en_pause(app):
+def _overlay(state, couper=lambda: None, reselectionner=lambda: None):
     from quest_reader.overlay import Overlay
 
+    return Overlay(state, couper=couper, reselectionner=reselectionner)
+
+
+def test_pause_ecrit_en_pause(app):
     state = PlayerState()
-    overlay = Overlay(state, couper=lambda: None)
+    overlay = _overlay(state)
     overlay.on_pause()
     assert state.etat is Etat.EN_PAUSE
 
 
 def test_stop_ecrit_arrete_et_coupe_la_voix(app):
-    from quest_reader.overlay import Overlay
-
     state = PlayerState()
     coupures = []
-    overlay = Overlay(state, couper=lambda: coupures.append(True))
+    overlay = _overlay(state, couper=lambda: coupures.append(True))
     overlay.on_stop()
     assert state.etat is Etat.ARRETE
     assert coupures == [True]  # la voix a bien été coupée
 
 
 def test_reprise_ecrit_actif(app):
-    from quest_reader.overlay import Overlay
-
     state = PlayerState()
     state.pause()
-    overlay = Overlay(state, couper=lambda: None)
+    overlay = _overlay(state)
     overlay.on_reprise()
     assert state.etat is Etat.ACTIF
+
+
+def test_le_bouton_source_declenche_la_reselection(app):
+    """⟳ appelle le callback de re-sélection, sans toucher à l'état."""
+    state = PlayerState()
+    appels = []
+    overlay = _overlay(state, reselectionner=lambda: appels.append(True))
+    overlay.on_source()
+    assert appels == [True]
+    assert state.etat is Etat.ACTIF  # la re-sélection n'est pas une transition
 
 
 class _FauxEvenement:
@@ -87,9 +97,7 @@ def test_la_fenetre_se_deplace_au_glisser(app):
     """Sans bordure, la fenêtre suit le curseur pendant le glisser."""
     from PySide6.QtCore import QPoint
 
-    from quest_reader.overlay import Overlay
-
-    overlay = Overlay(PlayerState(), couper=lambda: None)
+    overlay = _overlay(PlayerState())
     overlay.widget.move(100, 100)
 
     overlay.widget.mousePressEvent(_FauxEvenement(QPoint(150, 150)))

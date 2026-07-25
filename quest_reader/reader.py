@@ -16,7 +16,7 @@ from gi.repository import Gst, GLib  # noqa: E402
 
 import dbus.mainloop.glib  # noqa: E402
 
-from quest_reader.capture import ScreenCast  # noqa: E402
+from quest_reader.capture import ScreenCast, forget_token  # noqa: E402
 from quest_reader.detection import (  # noqa: E402
     bubble_still_there,
     find_dialog_box,
@@ -50,6 +50,14 @@ class Reader:
 
     def on_node(self, fd, node_id):
         Gst.init(None)
+        # Démonter l'ancien pipeline ICI, et non avant le sélecteur : si le
+        # joueur annule la re-sélection, aucun nouveau « on_node » n'arrive et
+        # la capture en cours doit survivre. On ne coupe donc l'ancienne source
+        # qu'une fois la nouvelle obtenue — sinon deux pipelines resteraient
+        # branchés sur « on_sample » et entremêleraient leurs images.
+        if self.pipeline is not None:
+            self.pipeline.set_state(Gst.State.NULL)
+            self.pipeline = None
         # videorate limite l'OCR : le flux monte à 60 fps, on n'en veut qu'un peu.
         self.pipeline = Gst.parse_launch(
             f"pipewiresrc fd={fd} path={node_id} ! videorate ! "
@@ -189,6 +197,30 @@ class Reader:
         """Demande l'arrêt de la boucle GLib (appelé depuis un autre thread)."""
         if getattr(self, "loop", None) is not None:
             self.loop.quit()
+
+    def demander_reselection(self):
+        """Rouvre le sélecteur de source. Appelé depuis le thread Qt.
+
+        La capture vit sur le thread GLib : on ne touche pas au portail depuis
+        Qt directement, on POSTE l'action sur la boucle GLib via « idle_add »,
+        qui l'exécutera sur le bon thread.
+        """
+        GLib.idle_add(self._reselectionner)
+
+    def _reselectionner(self):
+        """Recrée une session portail pour re-choisir la source (thread GLib).
+
+        On ne détruit PAS l'ancien pipeline ici : c'est « on_node » qui le
+        démonte, une fois la nouvelle source obtenue — annuler le sélecteur
+        doit laisser la capture en cours intacte. On ferme l'ancienne session
+        (sinon collision de chemin d'objet côté portail) et on oublie le jeton
+        (sinon le portail réutilise l'ancien choix sans rien demander).
+        """
+        self.cast.close()
+        forget_token()
+        self.cast = ScreenCast(self.on_node)
+        self.cast.start()
+        return False  # ne pas répéter l'idle
 
     def run(self):
         """Lancement autonome (sans overlay), pour compat/débogage.
