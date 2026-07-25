@@ -35,11 +35,23 @@ def _poignee_deplacement(fenetre):
             self._prise = None  # écart curseur↔coin au clic, ou None au repos
 
         def mousePressEvent(self, evenement):
-            if evenement.button() is Qt.LeftButton:
-                self._prise = (
-                    evenement.globalPosition().toPoint()
-                    - fenetre.frameGeometry().topLeft()
-                )
+            if evenement.button() is not Qt.LeftButton:
+                return
+            # Sous Wayland, un client N'A PAS le droit de positionner ses
+            # propres fenêtres : « fenetre.move() » est silencieusement ignoré.
+            # « startSystemMove » demande au COMPOSITEUR de mener le glisser —
+            # le seul qui en a le droit. Il doit être appelé au PRESS (le
+            # serial du grab pointeur doit être frais ; au move il est périmé et
+            # le compositeur refuse sans rien dire).
+            poignee_fenetre = self.window().windowHandle()
+            if poignee_fenetre is not None and poignee_fenetre.startSystemMove():
+                return  # le compositeur prend la main, on ne suit plus rien
+            # Repli (X11/XWayland, autres OS, ou hors affichage en test) : on
+            # suit le curseur à la main, « move() » y fonctionne.
+            self._prise = (
+                evenement.globalPosition().toPoint()
+                - fenetre.frameGeometry().topLeft()
+            )
 
         def mouseMoveEvent(self, evenement):
             if self._prise is not None:
