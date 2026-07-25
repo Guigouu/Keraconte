@@ -85,3 +85,38 @@ def test_un_nouveau_dialogue_coupe_le_precedent():
     speaker.say("Dialogue B.")
     assert speaker.queue.qsize() <= 1     # BACKLOG = 1, pas d'empilement
     assert playback.generation > g0       # chaque say ouvre une génération
+
+
+def test_un_nouveau_dialogue_leve_la_pause():
+    """Une bascule vers un nouveau dialogue défige la voix (design : la
+    pause « saute » quand un nouveau dialogue reprend le dessus)."""
+    from quest_reader.playback import player_state
+    from quest_reader.speaker import Speaker
+
+    player_state.pause()
+    try:
+        speaker = Speaker.__new__(Speaker)
+        speaker.queue = __import__("queue").Queue(maxsize=1)
+        speaker.say("Un nouveau dialogue.")
+        assert not player_state.en_pause
+    finally:
+        # « player_state » est une instance unique de module : on remet
+        # l'état à ACTIF pour ne pas contaminer les autres tests (un
+        # EN_PAUSE fuité ferait tourner la boucle de « play » sans fin).
+        player_state.reprendre()
+
+
+def test_fermer_le_dialogue_ne_leve_pas_la_pause():
+    """silence() coupe la voix mais ne défige pas : fermer une fenêtre
+    pendant une pause ne doit pas relancer une lecture."""
+    from quest_reader.playback import player_state
+    from quest_reader.speaker import Speaker
+
+    player_state.pause()
+    try:
+        speaker = Speaker.__new__(Speaker)
+        speaker.queue = __import__("queue").Queue(maxsize=1)
+        speaker.silence()
+        assert player_state.en_pause
+    finally:
+        player_state.reprendre()

@@ -9,7 +9,7 @@ import queue
 import sys
 import threading
 
-from quest_reader.playback import playback
+from quest_reader.playback import playback, player_state
 from quest_reader.text import split_narration
 
 
@@ -52,6 +52,10 @@ class Speaker(threading.Thread):
         self._drain()
 
     def say(self, text):
+        # Un nouveau dialogue lève une éventuelle pause (le design veut que
+        # la pause « saute » à la bascule) — mais pas un arrêt explicite :
+        # « reactiver » ne touche que EN_PAUSE, jamais ARRETE.
+        player_state.reactiver()
         # Un nouveau dialogue coupe l'actuel et ouvre sa propre génération.
         generation = playback.bump()
         self._drain()
