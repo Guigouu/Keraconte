@@ -22,6 +22,7 @@ from quest_reader.detection import (  # noqa: E402
     find_dialog_box,
 )
 from quest_reader.engines import build_engine  # noqa: E402
+from quest_reader.playback import player_state  # noqa: E402
 from quest_reader.speaker import Speaker  # noqa: E402
 from quest_reader.text import clean, clearest, same_dialog  # noqa: E402
 
@@ -84,6 +85,12 @@ class Reader:
         return Gst.FlowReturn.OK
 
     def handle(self, frame):
+        # Stoppé : on débraye l'analyse. La voix a déjà été coupée par le
+        # bouton ■ (state.stop() + silence()). En pause, au contraire, on
+        # continue : l'analyse doit repérer un nouveau dialogue, qui reprendra
+        # le dessus et lèvera la pause.
+        if player_state.arrete:
+            return
         text, box = find_dialog_box(frame)
         if not text:
             # Ne couper que si la bulle a vraiment quitté l'écran. L'OCR

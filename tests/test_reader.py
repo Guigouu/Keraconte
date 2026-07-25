@@ -252,3 +252,30 @@ def test_une_bulle_qui_revient_annule_le_decompte():
     reader = lecteur_nu()
     images(reader, [None] + ["Me revoilà."] + [None])
     reader.speaker.silence.assert_not_called()
+
+
+def test_arrete_ignore_les_images():
+    """Stoppé, le lecteur n'analyse plus : aucun dialogue n'est dit."""
+    from quest_reader.playback import player_state
+
+    reader = lecteur_nu()
+    player_state.stop()
+    try:
+        lus = images(reader, ["Un dialogue qui ne doit pas être lu."] * 3)
+        assert lus == []
+    finally:
+        player_state.reprendre()
+
+
+def test_en_pause_continue_d_analyser():
+    """En pause, l'analyse tourne : un nouveau dialogue est bien détecté
+    (c'est lui qui, via Speaker.say, lèvera la pause)."""
+    from quest_reader.playback import player_state
+
+    reader = lecteur_nu()
+    player_state.pause()
+    try:
+        lus = images(reader, ["Nouveau dialogue à l'écran."] * 3)
+        assert lus == ["Nouveau dialogue à l'écran."]
+    finally:
+        player_state.reprendre()
