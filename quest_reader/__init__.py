@@ -19,6 +19,7 @@ from quest_reader.engines import (  # noqa: F401
 from quest_reader.engines.xtts import voice_argument  # noqa: F401
 from quest_reader.playback import Playback  # noqa: F401
 from quest_reader.reader import Reader  # noqa: F401
+from quest_reader.speed import Vitesse  # noqa: F401
 from quest_reader.state import Etat, PlayerState  # noqa: F401
 from quest_reader.speaker import Speaker  # noqa: F401
 from quest_reader.text import (  # noqa: F401
