@@ -147,24 +147,12 @@ class Overlay:
         self.bouton_plus.clicked.connect(self.on_plus)
         self.bouton_source.clicked.connect(self.on_source)
         self.bouton_fermer.clicked.connect(self.on_fermer)
-        boutons = (
-            self.bouton_pause,
-            self.bouton_stop,
-            self.bouton_reprise,
-            self.bouton_moins,
-            self.bouton_plus,
-            self.bouton_source,
-            self.bouton_fermer,
-        )
-        # Taille uniforme, dérivée du plus grand « sizeHint » de la rangée (pas
-        # un nombre de pixels en dur) : elle suit la police et le facteur
-        # d'échelle. Un carré, pour que ⏸⏹⏵⟳✕ +/− s'alignent proprement.
-        cote = max(
-            max(bouton.sizeHint().width(), bouton.sizeHint().height())
-            for bouton in boutons
-        )
-        for bouton in boutons:
-            bouton.setFixedSize(cote, cote)
+        # Pas de taille forcée : chaque bouton garde son « sizeHint », compact.
+        # Une version passée figeait toute la rangée à un carré du plus grand
+        # côté — mais le sizeHint d'un QPushButton est bien plus large que haut,
+        # et le carré gonflait la fenêtre entière. Les glyphes emoji ➕/➖ étant
+        # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⟳✕),
+        # l'uniformisation n'a plus lieu d'être.
 
         # Ordre visuel : commandes, puis − [label] +, puis source et fermer.
         disposition.addWidget(self.bouton_pause)

@@ -153,9 +153,16 @@ def test_le_label_de_vitesse_reflete_la_valeur_courante(app):
     assert overlay.label_vitesse.text() == "1.0×"
 
 
-def test_les_boutons_ont_tous_la_meme_taille(app):
-    """Toute la rangée partage une taille fixe uniforme : les glyphes emoji
-    ➕/➖ avaient des métriques différentes des glyphes média ⏸⏹⏵⟳✕."""
+def test_les_boutons_gardent_leur_taille_naturelle(app):
+    """Aucune taille n'est forcée : chaque bouton prend son « sizeHint ».
+
+    Une version intermédiaire figeait toute la rangée à un carré du plus grand
+    côté (« setFixedSize(cote, cote) »). Le « sizeHint » d'un QPushButton est
+    bien plus LARGE que HAUT (padding horizontal du style) : le carré prenait
+    donc la largeur comme hauteur et gonflait toute la fenêtre. Les glyphes
+    emoji ➕/➖ étant abandonnés au profit de « + » et « − », l'uniformisation
+    n'a plus lieu d'être — on laisse Qt dimensionner naturellement.
+    """
     overlay = _overlay(PlayerState())
     boutons = [
         overlay.bouton_pause,
@@ -166,12 +173,11 @@ def test_les_boutons_ont_tous_la_meme_taille(app):
         overlay.bouton_source,
         overlay.bouton_fermer,
     ]
-    # « setFixedSize » fige la taille (min == max) : c'est ce qui distingue
-    # observablement la rangée corrigée de la rangée par défaut (min 0×0,
-    # max quasi infini). Hors affichage, « size() » seul ne discrimine pas.
+    # Taille NON figée : min et max restent aux valeurs par défaut de Qt (min
+    # sous le sizeHint, max quasi infini), preuve qu'aucun « setFixedSize »
+    # carré ne subsiste.
     for bouton in boutons:
-        assert bouton.minimumSize() == bouton.maximumSize()  # taille figée
-    assert len({bouton.minimumSize() for bouton in boutons}) == 1
+        assert bouton.minimumSize() != bouton.maximumSize()
 
 
 def test_les_boutons_vitesse_sont_actifs_par_defaut(app):
