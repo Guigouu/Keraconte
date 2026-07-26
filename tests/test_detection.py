@@ -136,11 +136,24 @@ def test_keep_word_garde_les_vrais_mots(texte, confiance):
     assert keep_word(texte, confiance)
 
 
-@pytest.mark.parametrize("nombre", ["10", "5", "6", "20"])
+@pytest.mark.parametrize(
+    "nombre",
+    [
+        "10",
+        "5",
+        "6",
+        "20",
+        "24,",  # « ouverte 24 heures sur 24, si vous... » : la virgule
+        "24.",  # collée au nombre le rendait invisible à isdigit(), et il
+        "10)",  # était jeté comme bruit — la phrase était lue amputée.
+    ],
+)
 def test_keep_word_garde_toujours_les_nombres(nombre):
     """Les nombres portent les quantités de quête : les taire prive le
     joueur de l'information. La garde passe avant le test de structure,
-    qui les rejetterait faute de voyelle."""
+    qui les rejetterait faute de voyelle. Un nombre PONCTUÉ (« 24, ») compte
+    aussi : le français colle la virgule au chiffre, et « 24,».isdigit() est
+    faux — d'où « 24 heures sur 24, » lu « 24 heures sur »."""
     assert keep_word(nombre, 30)
 
 

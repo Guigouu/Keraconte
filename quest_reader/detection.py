@@ -416,11 +416,16 @@ def keep_word(text, confidence):
     text = text.strip()
     if not text:
         return False
-    # Un nombre seul est toujours du dialogue : il porte les quantités de
-    # quête (« ramène-moi 10 dagues »), et les taire prive le joueur de
-    # l'information. Ce test passe avant celui de la structure, qui les
-    # rejetterait faute de voyelle.
-    if text.isdigit():
+    # Un nombre est toujours du dialogue : il porte les quantités de quête
+    # (« ramène-moi 10 dagues ») et les horaires (« ouverte 24 heures sur
+    # 24, »), et les taire prive le joueur de l'information. On accepte le
+    # nombre PONCTUÉ, pas seulement « isdigit() » : le français colle la
+    # virgule ou le point au chiffre (« 24, », « 24. »), et « 24,».isdigit()
+    # est faux — ce qui faisait lire « 24 heures sur 24, » amputé en « sur ».
+    # On exige au moins un chiffre et AUCUNE lettre : un fragment mêlant
+    # chiffre et lettre (« 2E », « A3 ») reste écarté plus bas. Ce test passe
+    # avant celui de la structure, qui rejetterait ces nombres faute de voyelle.
+    if re.search(r"\d", text) and not re.search(r"[^\W\d_]", text):
         return True
     # Le français détache « ! » et « ? » du mot : l'OCR les rend alors
     # comme un mot à part. Ils portent l'intonation, et les jeter
