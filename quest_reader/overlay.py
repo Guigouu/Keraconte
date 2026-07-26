@@ -64,19 +64,29 @@ def _poignee_deplacement(fenetre):
 
 
 class Overlay:
-    """Boutons — ⏸ ⏹ ⏵ ➖ ➕ ⟳ ✕ — pilotent la lecture, la vitesse et la source.
+    """Boutons — ⏸ ⏹ ⏵ − + ⟳ ✕ — pilotent la lecture, la vitesse et la source.
 
     N'hérite pas de QWidget au niveau module (Qt importé tardivement) : la
     vraie fenêtre est construite dans « __init__ ». Les méthodes on_* sont
     testables sans affichage réel. Les glyphes média Unicode (U+23F8/9/5) sont
-    vérifiés présents dans la police : « ⏸ » remplace deux barres collées. Les
-    signes ➕/➖ (U+2795/6) ont en plus un repli runtime (« + »/« − ») via
-    « _glyphe », au cas où la police système ne les porterait pas.
+    vérifiés présents dans la police : « ⏸ » remplace deux barres collées.
+    Pour la vitesse on n'utilise PAS « ➕/➖ » (U+2795/6) : ces points de code
+    ont une présentation emoji, que Qt résout vers la police couleur — rendu
+    délavé (aspect « grisé ») et métriques différentes des autres boutons. On
+    affiche donc « + » et le vrai signe moins « − » (U+2212), et l'on donne à
+    toute la rangée une taille uniforme pour que les glyphes ne la fassent pas
+    tressauter. Un label entre − et + montre la vitesse courante.
     """
 
     def __init__(self, state, couper, reselectionner, fermer, vitesse):
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+        from PySide6.QtGui import QFontMetrics
+        from PySide6.QtWidgets import (
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QWidget,
+        )
 
         self.state = state
         self.couper = couper
@@ -87,7 +97,7 @@ class Overlay:
         self.reselectionner = reselectionner
         self.fermer = fermer
         # Vitesse partagée avec le moteur (via le Reader) : les boutons +/- la
-        # mutent à chaud, le moteur la relit à la réplique suivante. Comme la
+        # mutent à chaud, le moteur la relit dès la phrase suivante. Comme la
         # re-sélection, ce n'est PAS une transition d'état de lecture — elle ne
         # passe pas par PlayerState.
         self.vitesse = vitesse
@@ -108,15 +118,23 @@ class Overlay:
         self.bouton_pause = QPushButton("⏸")
         self.bouton_stop = QPushButton("⏹")
         self.bouton_reprise = QPushButton("⏵")
-        # Boutons de vitesse : ralentir (➖) et accélérer (➕) la parole à chaud.
-        # Le glyphe « heavy plus/minus sign » (U+2795/U+2796) manque à certaines
-        # polices ; on retombe alors sur « + » et le vrai signe moins « − »
-        # (U+2212, plus lisible que le tiret ASCII). Le repli est choisi au
-        # lancement, dans la police effective du bouton.
-        self.bouton_moins = QPushButton(self._glyphe("➖", "−"))
-        self.bouton_plus = QPushButton(self._glyphe("➕", "+"))
+        # Boutons de vitesse : ralentir (« − », U+2212) et accélérer (« + »).
+        # On évite « ➕/➖ » (U+2795/6), à présentation emoji : Qt les résout
+        # vers la police couleur, d'où un rendu délavé et des métriques qui
+        # dépareillaient la rangée. Le vrai signe moins est plus lisible que le
+        # tiret ASCII.
+        self.bouton_moins = QPushButton("−")
+        self.bouton_plus = QPushButton("+")
         self.bouton_moins.setToolTip("Ralentir la parole")
         self.bouton_plus.setToolTip("Accélérer la parole")
+        # Label de vitesse, entre − et + : sans lui, on ne sait pas à quel
+        # débit on est. Largeur fixe (le plus large affichage possible, « 9.9× »)
+        # pour que la rangée ne tressaute pas quand le texte change de longueur.
+        self.label_vitesse = QLabel()
+        self.label_vitesse.setAlignment(Qt.AlignCenter)
+        self.label_vitesse.setFixedWidth(
+            QFontMetrics(self.label_vitesse.font()).horizontalAdvance("9.9×")
+        )
         self.bouton_source = QPushButton("⟳")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
         # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
@@ -129,7 +147,7 @@ class Overlay:
         self.bouton_plus.clicked.connect(self.on_plus)
         self.bouton_source.clicked.connect(self.on_source)
         self.bouton_fermer.clicked.connect(self.on_fermer)
-        for bouton in (
+        boutons = (
             self.bouton_pause,
             self.bouton_stop,
             self.bouton_reprise,
@@ -137,32 +155,36 @@ class Overlay:
             self.bouton_plus,
             self.bouton_source,
             self.bouton_fermer,
-        ):
-            disposition.addWidget(bouton)
+        )
+        # Taille uniforme, dérivée du plus grand « sizeHint » de la rangée (pas
+        # un nombre de pixels en dur) : elle suit la police et le facteur
+        # d'échelle. Un carré, pour que ⏸⏹⏵⟳✕ +/− s'alignent proprement.
+        cote = max(
+            max(bouton.sizeHint().width(), bouton.sizeHint().height())
+            for bouton in boutons
+        )
+        for bouton in boutons:
+            bouton.setFixedSize(cote, cote)
+
+        # Ordre visuel : commandes, puis − [label] +, puis source et fermer.
+        disposition.addWidget(self.bouton_pause)
+        disposition.addWidget(self.bouton_stop)
+        disposition.addWidget(self.bouton_reprise)
+        disposition.addWidget(self.bouton_moins)
+        disposition.addWidget(self.label_vitesse)
+        disposition.addWidget(self.bouton_plus)
+        disposition.addWidget(self.bouton_source)
+        disposition.addWidget(self.bouton_fermer)
 
         self._rafraichir()
 
-    @staticmethod
-    def _glyphe(prefere, repli):
-        """Rend « prefere » s'il existe dans la police par défaut, sinon « repli ».
-
-        Les glyphes média (⏸⏹⏵) sont vérifiés à l'œil ; ➕/➖ le sont aussi,
-        mais on double d'un garde-fou runtime peu coûteux : « QFontMetrics »
-        dit si le point de code est présent dans la police effective, et l'on
-        bascule sur un repli lisible plutôt que d'afficher un carré vide.
-        """
-        from PySide6.QtGui import QFont, QFontMetrics
-
-        metriques = QFontMetrics(QFont())
-        return prefere if metriques.inFont(prefere) else repli
-
     def on_plus(self):
-        """Accélère la parole d'un pas (effet à la réplique suivante)."""
+        """Accélère la parole d'un pas (effet dès la phrase suivante)."""
         self.vitesse.augmenter()
         self._rafraichir()
 
     def on_moins(self):
-        """Ralentit la parole d'un pas (effet à la réplique suivante)."""
+        """Ralentit la parole d'un pas (effet dès la phrase suivante)."""
         self.vitesse.diminuer()
         self._rafraichir()
 
@@ -189,10 +211,11 @@ class Overlay:
         self.fermer()
 
     def _rafraichir(self):
-        """Grise le bouton correspondant à l'état courant.
+        """Grise le bouton correspondant à l'état courant, met à jour la vitesse.
 
-        Grise aussi ➕/➖ aux bornes de vitesse : au maximum on ne peut plus
-        accélérer, au minimum plus ralentir.
+        Grise aussi +/− aux bornes de vitesse : au maximum on ne peut plus
+        accélérer, au minimum plus ralentir. Rafraîchit enfin le label qui
+        affiche le débit courant, appelé à chaque clic +/-.
         """
         etat = self.state.etat
         self.bouton_pause.setEnabled(etat is not Etat.EN_PAUSE)
@@ -200,6 +223,7 @@ class Overlay:
         self.bouton_reprise.setEnabled(etat is not Etat.ACTIF)
         self.bouton_plus.setEnabled(not self.vitesse.au_maximum())
         self.bouton_moins.setEnabled(not self.vitesse.au_minimum())
+        self.label_vitesse.setText(f"{self.vitesse.valeur:.1f}×")
 
     def show(self):
         self.widget.show()

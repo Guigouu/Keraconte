@@ -142,6 +142,55 @@ def test_les_boutons_vitesse_ne_touchent_pas_l_etat(app):
     assert state.etat is Etat.EN_PAUSE  # inchangé par les boutons vitesse
 
 
+def test_le_label_de_vitesse_reflete_la_valeur_courante(app):
+    """Un label entre ➖ et ➕ montre la vitesse ; il suit chaque clic."""
+    vitesse = Vitesse(1.0)
+    overlay = _overlay(PlayerState(), vitesse=vitesse)
+    assert overlay.label_vitesse.text() == "1.0×"
+    overlay.on_plus()  # 1.0 → 1.1
+    assert overlay.label_vitesse.text() == "1.1×"
+    overlay.on_moins()  # 1.1 → 1.0
+    assert overlay.label_vitesse.text() == "1.0×"
+
+
+def test_les_boutons_ont_tous_la_meme_taille(app):
+    """Toute la rangée partage une taille fixe uniforme : les glyphes emoji
+    ➕/➖ avaient des métriques différentes des glyphes média ⏸⏹⏵⟳✕."""
+    overlay = _overlay(PlayerState())
+    boutons = [
+        overlay.bouton_pause,
+        overlay.bouton_stop,
+        overlay.bouton_reprise,
+        overlay.bouton_moins,
+        overlay.bouton_plus,
+        overlay.bouton_source,
+        overlay.bouton_fermer,
+    ]
+    # « setFixedSize » fige la taille (min == max) : c'est ce qui distingue
+    # observablement la rangée corrigée de la rangée par défaut (min 0×0,
+    # max quasi infini). Hors affichage, « size() » seul ne discrimine pas.
+    for bouton in boutons:
+        assert bouton.minimumSize() == bouton.maximumSize()  # taille figée
+    assert len({bouton.minimumSize() for bouton in boutons}) == 1
+
+
+def test_les_boutons_vitesse_sont_actifs_par_defaut(app):
+    """À la vitesse par défaut 1.22, ➕/➖ ne sont ni au min ni au max :
+    ils doivent être actifs. L'aspect « grisé » venait du rendu emoji, pas
+    d'un vrai désactivement."""
+    overlay = _overlay(PlayerState(), vitesse=Vitesse(1.22))
+    assert overlay.bouton_plus.isEnabled() is True
+    assert overlay.bouton_moins.isEnabled() is True
+
+
+def test_les_boutons_vitesse_evitent_les_glyphes_emoji(app):
+    """➕/➖ (U+2795/6) sont à présentation emoji : rendu délavé, métriques
+    à part. On affiche « + » et le vrai signe moins « − » (U+2212)."""
+    overlay = _overlay(PlayerState())
+    assert overlay.bouton_plus.text() == "+"
+    assert overlay.bouton_moins.text() == "−"
+
+
 class _FauxEvenement:
     """Tient le rôle d'un QMouseEvent pour piloter le glisser.
 
