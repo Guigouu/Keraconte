@@ -4,7 +4,9 @@ Sommet du DAG : dépend de la détection, du texte, du fil de synthèse et de la
 capture. Décode le flux vidéo via Gst et orchestre le tout.
 """
 
+import os
 import signal
+import sys
 import time
 
 import numpy as np
@@ -28,6 +30,17 @@ from quest_reader.text import clean, clearest, same_dialog  # noqa: E402
 
 
 CLOSED_AFTER = 2  # images sans bulle avant de couper la voix
+
+# Journal de diagnostic, silencieux par défaut. Activé par « QR_DEBUG=1 » dans
+# l'environnement, il trace sur stderr le verdict de détection de chaque image
+# et chaque décision (say/silence), pour localiser une coupure sans changer le
+# comportement. À n'utiliser que pour déboguer en jeu.
+_DEBUG = bool(os.environ.get("QR_DEBUG"))
+
+
+def _trace(message):
+    if _DEBUG:
+        print(f"[qr] {message}", file=sys.stderr, flush=True)
 
 
 class Reader:
@@ -113,6 +126,11 @@ class Reader:
             return
         text, box = find_dialog_box(frame)
         if not text:
+            revue = bubble_still_there(frame, self.last_box)
+            _trace(
+                f"image SANS texte | bulle_encore_là={revue} "
+                f"| missing={self.missing} | last_box={self.last_box}"
+            )
             # Ne couper que si la bulle a vraiment quitté l'écran. L'OCR
             # échoue régulièrement sur une bulle bien présente — texte en
             # cours d'affichage, rafraîchissement — et couper là-dessus
@@ -121,7 +139,7 @@ class Reader:
             # reconnu comme déjà lu. On vérifie que c'est bien LA bulle lue
             # qui est encore là, et non le décor : le chat et la barre de
             # sorts ressemblent à des bulles, mais n'occupent pas sa place.
-            if bubble_still_there(frame, self.last_box):
+            if revue:
                 return
             # Deux images sans bulle avant de couper. À --fps 4 cela fait une
             # demi-seconde : assez pour absorber un raté de détection isolé
@@ -130,6 +148,7 @@ class Reader:
             # une seule fois, pas à chaque image absente au-delà.
             self.missing += 1
             if self.missing == CLOSED_AFTER:
+                _trace(f">>> SILENCE (bulle absente {CLOSED_AFTER} images) : coupe la voix")
                 self.speaker.silence()
                 # « last_text » survit exprès. Trois images sans bulle ne
                 # prouvent pas que le joueur a fermé quoi que ce soit, et
@@ -143,6 +162,7 @@ class Reader:
                 # passerait pour l'ancienne, et la coupure suivante manquerait.
                 self.last_box = None
             return
+        _trace(f"image AVEC texte ({len(text)} car.) | box={box}")
         self.missing = 0
         # La bulle est là : on retient sa place, même si le texte n'est pas
         # encore lu (il s'écrit peut-être encore). C'est ce repère qui, à
@@ -178,6 +198,7 @@ class Reader:
         self.pending = []
         self.last_text = text
         self.last_seen = now
+        _trace(f">>> SAY : lance la lecture ({len(text)} car.)")
         print(f"\n> {text}", flush=True)
         self.speaker.say(text)
 
