@@ -64,15 +64,17 @@ def _poignee_deplacement(fenetre):
 
 
 class Overlay:
-    """Quatre boutons — ⏸ ⏹ ⏵ ⟳ — pilotent la lecture et la source.
+    """Boutons — ⏸ ⏹ ⏵ ➖ ➕ ⟳ ✕ — pilotent la lecture, la vitesse et la source.
 
     N'hérite pas de QWidget au niveau module (Qt importé tardivement) : la
     vraie fenêtre est construite dans « __init__ ». Les méthodes on_* sont
     testables sans affichage réel. Les glyphes média Unicode (U+23F8/9/5) sont
-    vérifiés présents dans la police : « ⏸ » remplace deux barres collées.
+    vérifiés présents dans la police : « ⏸ » remplace deux barres collées. Les
+    signes ➕/➖ (U+2795/6) ont en plus un repli runtime (« + »/« − ») via
+    « _glyphe », au cas où la police système ne les porterait pas.
     """
 
-    def __init__(self, state, couper, reselectionner, fermer):
+    def __init__(self, state, couper, reselectionner, fermer, vitesse):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
@@ -84,6 +86,11 @@ class Overlay:
         # « couper ».
         self.reselectionner = reselectionner
         self.fermer = fermer
+        # Vitesse partagée avec le moteur (via le Reader) : les boutons +/- la
+        # mutent à chaud, le moteur la relit à la réplique suivante. Comme la
+        # re-sélection, ce n'est PAS une transition d'état de lecture — elle ne
+        # passe pas par PlayerState.
+        self.vitesse = vitesse
 
         self.widget = QWidget()
         self.widget.setWindowFlags(
@@ -101,6 +108,15 @@ class Overlay:
         self.bouton_pause = QPushButton("⏸")
         self.bouton_stop = QPushButton("⏹")
         self.bouton_reprise = QPushButton("⏵")
+        # Boutons de vitesse : ralentir (➖) et accélérer (➕) la parole à chaud.
+        # Le glyphe « heavy plus/minus sign » (U+2795/U+2796) manque à certaines
+        # polices ; on retombe alors sur « + » et le vrai signe moins « − »
+        # (U+2212, plus lisible que le tiret ASCII). Le repli est choisi au
+        # lancement, dans la police effective du bouton.
+        self.bouton_moins = QPushButton(self._glyphe("➖", "−"))
+        self.bouton_plus = QPushButton(self._glyphe("➕", "+"))
+        self.bouton_moins.setToolTip("Ralentir la parole")
+        self.bouton_plus.setToolTip("Accélérer la parole")
         self.bouton_source = QPushButton("⟳")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
         # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
@@ -109,17 +125,45 @@ class Overlay:
         self.bouton_pause.clicked.connect(self.on_pause)
         self.bouton_stop.clicked.connect(self.on_stop)
         self.bouton_reprise.clicked.connect(self.on_reprise)
+        self.bouton_moins.clicked.connect(self.on_moins)
+        self.bouton_plus.clicked.connect(self.on_plus)
         self.bouton_source.clicked.connect(self.on_source)
         self.bouton_fermer.clicked.connect(self.on_fermer)
         for bouton in (
             self.bouton_pause,
             self.bouton_stop,
             self.bouton_reprise,
+            self.bouton_moins,
+            self.bouton_plus,
             self.bouton_source,
             self.bouton_fermer,
         ):
             disposition.addWidget(bouton)
 
+        self._rafraichir()
+
+    @staticmethod
+    def _glyphe(prefere, repli):
+        """Rend « prefere » s'il existe dans la police par défaut, sinon « repli ».
+
+        Les glyphes média (⏸⏹⏵) sont vérifiés à l'œil ; ➕/➖ le sont aussi,
+        mais on double d'un garde-fou runtime peu coûteux : « QFontMetrics »
+        dit si le point de code est présent dans la police effective, et l'on
+        bascule sur un repli lisible plutôt que d'afficher un carré vide.
+        """
+        from PySide6.QtGui import QFont, QFontMetrics
+
+        metriques = QFontMetrics(QFont())
+        return prefere if metriques.inFont(prefere) else repli
+
+    def on_plus(self):
+        """Accélère la parole d'un pas (effet à la réplique suivante)."""
+        self.vitesse.augmenter()
+        self._rafraichir()
+
+    def on_moins(self):
+        """Ralentit la parole d'un pas (effet à la réplique suivante)."""
+        self.vitesse.diminuer()
         self._rafraichir()
 
     def on_pause(self):
@@ -145,11 +189,17 @@ class Overlay:
         self.fermer()
 
     def _rafraichir(self):
-        """Grise le bouton correspondant à l'état courant."""
+        """Grise le bouton correspondant à l'état courant.
+
+        Grise aussi ➕/➖ aux bornes de vitesse : au maximum on ne peut plus
+        accélérer, au minimum plus ralentir.
+        """
         etat = self.state.etat
         self.bouton_pause.setEnabled(etat is not Etat.EN_PAUSE)
         self.bouton_stop.setEnabled(etat is not Etat.ARRETE)
         self.bouton_reprise.setEnabled(etat is not Etat.ACTIF)
+        self.bouton_plus.setEnabled(not self.vitesse.au_maximum())
+        self.bouton_moins.setEnabled(not self.vitesse.au_minimum())
 
     def show(self):
         self.widget.show()

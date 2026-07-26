@@ -15,6 +15,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
 
+from quest_reader.speed import MAX, MIN, PAS, Vitesse  # noqa: E402
 from quest_reader.state import Etat, PlayerState  # noqa: E402
 
 
@@ -31,11 +32,16 @@ def _overlay(
     couper=lambda: None,
     reselectionner=lambda: None,
     fermer=lambda: None,
+    vitesse=None,
 ):
     from quest_reader.overlay import Overlay
 
     return Overlay(
-        state, couper=couper, reselectionner=reselectionner, fermer=fermer
+        state,
+        couper=couper,
+        reselectionner=reselectionner,
+        fermer=fermer,
+        vitesse=vitesse if vitesse is not None else Vitesse(1.22),
     )
 
 
@@ -81,6 +87,59 @@ def test_le_bouton_fermer_declenche_la_fermeture(app):
     overlay.on_fermer()
     assert appels == [True]
     assert state.etat is Etat.ACTIF
+
+
+def test_le_bouton_plus_accelere_la_parole(app):
+    """➕ augmente la vitesse partagée d'un pas, sans toucher l'état."""
+    state = PlayerState()
+    vitesse = Vitesse(1.0)
+    overlay = _overlay(state, vitesse=vitesse)
+    overlay.on_plus()
+    assert vitesse.valeur == pytest.approx(1.0 + PAS)
+    assert state.etat is Etat.ACTIF  # la vitesse n'est pas une transition
+
+
+def test_le_bouton_moins_ralentit_la_parole(app):
+    """➖ diminue la vitesse partagée d'un pas, sans toucher l'état."""
+    state = PlayerState()
+    vitesse = Vitesse(1.0)
+    overlay = _overlay(state, vitesse=vitesse)
+    overlay.on_moins()
+    assert vitesse.valeur == pytest.approx(1.0 - PAS)
+    assert state.etat is Etat.ACTIF
+
+
+def test_le_bouton_plus_est_grise_au_maximum(app):
+    """Au maximum, ➕ est grisé (on ne peut plus accélérer)."""
+    overlay = _overlay(PlayerState(), vitesse=Vitesse(MAX))
+    assert overlay.bouton_plus.isEnabled() is False
+    assert overlay.bouton_moins.isEnabled() is True
+
+
+def test_le_bouton_moins_est_grise_au_minimum(app):
+    """Au minimum, ➖ est grisé (on ne peut plus ralentir)."""
+    overlay = _overlay(PlayerState(), vitesse=Vitesse(MIN))
+    assert overlay.bouton_moins.isEnabled() is False
+    assert overlay.bouton_plus.isEnabled() is True
+
+
+def test_atteindre_la_borne_grise_le_bouton(app):
+    """En cliquant jusqu'à la borne, le bouton concerné se grise."""
+    vitesse = Vitesse(MAX - PAS)
+    overlay = _overlay(PlayerState(), vitesse=vitesse)
+    assert overlay.bouton_plus.isEnabled() is True
+    overlay.on_plus()  # atteint MAX
+    assert overlay.bouton_plus.isEnabled() is False
+
+
+def test_les_boutons_vitesse_ne_touchent_pas_l_etat(app):
+    """+/- ne passent jamais par PlayerState, même en pause."""
+    state = PlayerState()
+    state.pause()
+    overlay = _overlay(state, vitesse=Vitesse(1.0))
+    overlay.on_plus()
+    overlay.on_moins()
+    assert state.etat is Etat.EN_PAUSE  # inchangé par les boutons vitesse
 
 
 class _FauxEvenement:
