@@ -70,7 +70,7 @@ def test_reprise_ecrit_actif(app):
 
 
 def test_le_bouton_source_declenche_la_reselection(app):
-    """⟳ appelle le callback de re-sélection, sans toucher à l'état."""
+    """⧉ appelle le callback de re-sélection, sans toucher à l'état."""
     state = PlayerState()
     appels = []
     overlay = _overlay(state, reselectionner=lambda: appels.append(True))

@@ -64,7 +64,7 @@ def _poignee_deplacement(fenetre):
 
 
 class Overlay:
-    """Boutons — ⏸ ⏹ ⏵ − + ⟳ ✕ — pilotent la lecture, la vitesse et la source.
+    """Boutons — ⏸ ⏹ ⏵ − + ⧉ ✕ — pilotent la lecture, la vitesse et la source.
 
     N'hérite pas de QWidget au niveau module (Qt importé tardivement) : la
     vraie fenêtre est construite dans « __init__ ». Les méthodes on_* sont
@@ -135,7 +135,12 @@ class Overlay:
         self.label_vitesse.setFixedWidth(
             QFontMetrics(self.label_vitesse.font()).horizontalAdvance("9.9×")
         )
-        self.bouton_source = QPushButton("⟳")
+        # « ⧉ » (deux fenêtres superposées, U+29C9) : « choisir/changer la
+        # source ». On évite « ⟳ » (rotation), qui disait « recharger » et
+        # prêtait à confusion, et les vrais emoji d'écran/appareil photo
+        # (🖥/📷), absents de la police — ils rendraient délavé et dépareillé,
+        # comme les ➕/➖ qu'on a dû abandonner.
+        self.bouton_source = QPushButton("⧉")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
         # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
         self.bouton_fermer = QPushButton("✕")
@@ -151,7 +156,7 @@ class Overlay:
         # Une version passée figeait toute la rangée à un carré du plus grand
         # côté — mais le sizeHint d'un QPushButton est bien plus large que haut,
         # et le carré gonflait la fenêtre entière. Les glyphes emoji ➕/➖ étant
-        # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⟳✕),
+        # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⧉✕),
         # l'uniformisation n'a plus lieu d'être.
 
         # Ordre visuel : commandes, puis − [label] +, puis source et fermer.

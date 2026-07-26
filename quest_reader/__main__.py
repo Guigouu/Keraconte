@@ -107,7 +107,7 @@ def lancer_avec_overlay(args):
     reader = Reader(args)
     reader.demarrer_capture()
 
-    # Le stop de l'overlay coupe la voix en cours ; ⟳ rouvre le sélecteur de
+    # Le stop de l'overlay coupe la voix en cours ; ⧉ rouvre le sélecteur de
     # source (posté sur le thread GLib par le Reader) ; ✕ quitte l'app —
     # « app.quit » déclenche « aboutToQuit » et l'arrêt propre ci-dessous.
     overlay = Overlay(
