@@ -26,7 +26,9 @@ class Playback:
     nouveau dialogue incrémente la génération, et un son périmé ne part pas.
     La pause est une couche ajoutée : entre deux tranches, si l'état est
     EN_PAUSE, la boucle attend sur « player_state » sans tenir « self.lock »
-    (sinon « bump » — qui prend ce lock — ne pourrait plus couper).
+    (sinon « bump » — qui prend ce lock — ne pourrait plus incrémenter la
+    génération). La coupure passe UNIQUEMENT par la génération : jamais par une
+    fermeture du flux depuis un autre thread, qui corromprait le tas PortAudio.
     """
 
     def __init__(self, state):
@@ -40,11 +42,17 @@ class Playback:
             return self.generation
 
     def bump(self):
-        """Ouvre une nouvelle génération et coupe le son en cours."""
+        """Ouvre une nouvelle génération. Ne ferme PAS le flux lui-même.
+
+        Fermer un OutputStream sounddevice depuis un autre thread pendant que
+        le thread de lecture est dans « write() » corrompt le tas de PortAudio
+        (segfault, « malloc corrupted », « EBADFD »). La coupure passe donc
+        uniquement par la génération : la boucle de « play » la relit sans
+        verrou et sort d'elle-même, puis ferme le flux DANS SON PROPRE THREAD
+        (le seul autorisé à le fermer). Latence de coupure ≤ une tranche.
+        """
         with self.lock:
             self.generation += 1
-            if self.current is not None:
-                self.current.close()
             return self.generation
 
     def _lire_wav(self, path):
@@ -108,8 +116,9 @@ class Playback:
         canaux = echantillons.shape[1]
         taille = max(1, int(frequence * TRANCHE_MS / 1000))
 
-        # Ouverture du flux sous lock (comme le Popen d'avant), pour que
-        # « bump » puisse le fermer. La BOUCLE, elle, tourne hors lock.
+        # « self.current » n'expose le flux qu'à des fins de diagnostic : un
+        # OutputStream ne doit JAMAIS être fermé depuis un autre thread que
+        # celui-ci (sinon segfault, voir « bump »). La BOUCLE tourne hors lock.
         # L'ouverture peut échouer (« import sounddevice » lève OSError sans
         # PortAudio ; « OutputStream » sans périphérique) : on le signale et
         # l'app continue, comme le design le demande — sans laisser

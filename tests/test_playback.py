@@ -125,13 +125,22 @@ def test_sans_peripherique_audio_l_app_continue():
     assert pb.current is None
 
 
-def test_bump_coupe_le_flux_en_cours():
-    """bump() ferme le flux courant, comme il tuait le processus avant."""
+def test_bump_ne_ferme_pas_le_flux_lui_meme():
+    """bump() n'incrémente QUE la génération, sans toucher au flux.
+
+    Fermer un OutputStream depuis un autre thread pendant que le thread de
+    lecture est dans « write() » corrompt le tas PortAudio (segfault vu en
+    jeu). La coupure passe donc par la génération seule : c'est la boucle de
+    « play » qui ferme le flux, dans son propre thread (voir
+    « test_abandonne_en_cours_si_la_generation_change »).
+    """
     pb = _playback()
     sortie = FauxSortie()
     pb.current = sortie
+    gen_avant = pb.generation
     pb.bump()
-    assert sortie.ferme
+    assert pb.generation == gen_avant + 1  # une nouvelle génération est ouverte
+    assert not sortie.ferme  # mais le flux n'est PAS fermé depuis « bump »
 
 
 class _FauxSounddevice:
