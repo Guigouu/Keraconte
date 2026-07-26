@@ -20,11 +20,13 @@ class KokoroEngine(Engine):
     # faut donc que l'écart de débit s'entende nettement.
     NARRATION_SLOWDOWN = 0.75
 
-    def __init__(self, speed):
+    def __init__(self, vitesse):
         from kokoro_onnx import Kokoro
 
         self.kokoro = Kokoro(str(KOKORO_MODEL), str(KOKORO_VOICES))
-        self.speed = speed
+        # Vitesse partagée, mutée par l'overlay : relue à chaque « speak »
+        # pour que le débit change à chaud, sans reconstruire le moteur.
+        self.vitesse = vitesse
 
     def speak(self, text, narration, generation):
         import soundfile
@@ -33,7 +35,7 @@ class KokoroEngine(Engine):
         # Sans phonème à concaténer, « create » lève au lieu de se taire.
         if not speakable(spoken):
             return
-        speed = self.speed
+        speed = self.vitesse.valeur
         if narration:
             speed *= self.NARRATION_SLOWDOWN
         samples, rate = self.kokoro.create(

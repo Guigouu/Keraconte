@@ -13,7 +13,40 @@ from quest_reader.engines import build_engine, check_xtts  # noqa: E402
 from quest_reader.engines.piper import PiperEngine  # noqa: E402
 from quest_reader.engines.xtts import XttsEngine, voice_argument  # noqa: E402
 from quest_reader.playback import playback  # noqa: E402
+from quest_reader.speed import Vitesse  # noqa: E402
 from tests.helpers import faux_xtts  # noqa: E402
+
+
+def faux_piper(rendus):
+    """Double la bibliothèque « piper » et capture le « length_scale ».
+
+    « SynthesisConfig » n'enregistre que le dernier « length_scale » reçu, et
+    la voix ne synthétise rien de réel — on vérifie le câblage du débit, pas
+    la synthèse. On patche aussi « play_wave » pour ne rien jouer.
+    """
+
+    class FausseVoix:
+        @staticmethod
+        def load(path):
+            return FausseVoix()
+
+        def synthesize_wav(self, texte, sortie, syn_config):
+            # Le vrai Piper remplit l'objet « wave » ; on écrit un cadre
+            # minimal pour que « wave.open » se ferme sans « # channels
+            # not specified ». On ne joue rien (« play_wave » est patché).
+            sortie.setnchannels(1)
+            sortie.setsampwidth(2)
+            sortie.setframerate(22050)
+            sortie.writeframes(b"\x00\x00")
+
+    def faux_config(length_scale):
+        rendus["length_scale"] = length_scale
+        return None
+
+    faux_module = types.ModuleType("piper")
+    faux_module.PiperVoice = FausseVoix
+    faux_module.SynthesisConfig = faux_config
+    return faux_module
 
 
 def test_speed_accelere_les_deux_moteurs():
@@ -23,24 +56,38 @@ def test_speed_accelere_les_deux_moteurs():
     chiffre accélérait un moteur et ralentissait l'autre.
     """
     rendus = {}
-
-    class FauxPiper:
-        @staticmethod
-        def load(path):
-            return None
-
-    def faux_config(length_scale):
-        rendus["length_scale"] = length_scale
-        return None
-
-    faux_module = types.ModuleType("piper")
-    faux_module.PiperVoice = FauxPiper
-    faux_module.SynthesisConfig = faux_config
-    with mock.patch.dict(sys.modules, {"piper": faux_module}):
-        PiperEngine({"dialogue": "x", "narration": "y"}, 1.25, 0)
+    faux_module = faux_piper(rendus)
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "quest_reader.engines.piper.play_wave"
+    ):
+        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, Vitesse(1.25), 0)
+        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
 
     # Un débit de 1.25 doit raccourcir la durée, non l'allonger.
     assert rendus["length_scale"] == pytest.approx(0.8)
+
+
+def test_piper_relit_la_vitesse_a_chaud():
+    """Muter la Vitesse change le débit à la réplique SUIVANTE.
+
+    Piper pré-calculait « SynthesisConfig(length_scale) » à la construction :
+    le débit était figé pour la vie du moteur. On le reconstruit désormais à
+    chaque « speak », depuis la vitesse partagée. Ce test est ROUGE tant que
+    la config reste figée dans « __init__ ».
+    """
+    rendus = {}
+    faux_module = faux_piper(rendus)
+    vitesse = Vitesse(1.0)
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "quest_reader.engines.piper.play_wave"
+    ):
+        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse, 0)
+        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        assert rendus["length_scale"] == pytest.approx(1.0)  # 1/1.0
+        vitesse.augmenter()  # 1.0 → 1.1
+        moteur.speak("Rebonjour.", narration=False, generation=playback.generation)
+
+    assert rendus["length_scale"] == pytest.approx(1 / 1.1)
 
 
 def test_xtts_pose_la_rustine_isin_mps_friendly():
@@ -52,7 +99,7 @@ def test_xtts_pose_la_rustine_isin_mps_friendly():
     """
     modules, pu = faux_xtts({})
     with mock.patch.dict(sys.modules, modules):
-        XttsEngine({"dialogue": "a.wav", "narration": "b.wav"}, 1.0)
+        XttsEngine({"dialogue": "a.wav", "narration": "b.wav"}, Vitesse(1.0))
         assert hasattr(pu, "isin_mps_friendly")
         elements, test_elements = pu.isin_mps_friendly(
             elements="e", test_elements="t"
@@ -70,7 +117,7 @@ def test_xtts_decoupe_par_phrases_et_choisit_la_voix():
     modules, _ = faux_xtts(rendus)
     with mock.patch.dict(sys.modules, modules):
         moteur = XttsEngine(
-            {"dialogue": "pnj.wav", "narration": "didascalie.wav"}, 1.15
+            {"dialogue": "pnj.wav", "narration": "didascalie.wav"}, Vitesse(1.15)
         )
         moteur.speak(
             "Bienvenue ! Approche-toi.", narration=False, generation=playback.generation
@@ -105,10 +152,68 @@ def test_xtts_ne_synthetise_pas_un_segment_vide():
     rendus = {}
     modules, _ = faux_xtts(rendus)
     with mock.patch.dict(sys.modules, modules):
-        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, 1.0)
+        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, Vitesse(1.0))
         moteur.speak("...", narration=False, generation=playback.generation)
 
     assert rendus.get("appels", []) == []
+
+
+def test_xtts_relit_la_vitesse_a_chaud():
+    """Muter la Vitesse change le débit passé à « tts_to_file » à la suivante.
+
+    XTTS lisait « self.speed » figé ; il lit désormais la vitesse partagée à
+    chaque rendu. Le double « faux_xtts » capture le « speed » de chaque appel.
+    """
+    rendus = {}
+    modules, _ = faux_xtts(rendus)
+    vitesse = Vitesse(1.0)
+    with mock.patch.dict(sys.modules, modules):
+        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, vitesse)
+        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        vitesse.augmenter()  # 1.0 → 1.1
+        moteur.speak("Rebonjour.", narration=False, generation=playback.generation)
+
+    vitesses = [appel["speed"] for appel in rendus["appels"]]
+    assert vitesses == [pytest.approx(1.0), pytest.approx(1.1)]
+
+
+def faux_kokoro(rendus):
+    """Double la bibliothèque « kokoro_onnx » et capture le « speed » de create."""
+    import numpy
+
+    class FauxKokoro:
+        def __init__(self, modele, voix):
+            pass
+
+        def create(self, texte, voice, lang, speed):
+            rendus.setdefault("speeds", []).append(speed)
+            return numpy.zeros(1, dtype="float32"), 24000
+
+    faux_module = types.ModuleType("kokoro_onnx")
+    faux_module.Kokoro = FauxKokoro
+    return faux_module
+
+
+def test_kokoro_relit_la_vitesse_a_chaud():
+    """Muter la Vitesse change le débit passé à « create » à la suivante.
+
+    Kokoro lisait « self.speed » à chaque « speak » ; il lit désormais la
+    vitesse partagée. On double « kokoro_onnx.Kokoro » et « play_wave ».
+    """
+    from quest_reader.engines.kokoro import KokoroEngine
+
+    rendus = {}
+    faux_module = faux_kokoro(rendus)
+    vitesse = Vitesse(1.0)
+    with mock.patch.dict(sys.modules, {"kokoro_onnx": faux_module}), mock.patch(
+        "quest_reader.engines.kokoro.play_wave"
+    ):
+        moteur = KokoroEngine(vitesse)
+        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        vitesse.augmenter()  # 1.0 → 1.1
+        moteur.speak("Rebonjour.", narration=False, generation=playback.generation)
+
+    assert rendus["speeds"] == [pytest.approx(1.0), pytest.approx(1.1)]
 
 
 def args_xtts(**extra):
@@ -184,7 +289,7 @@ def test_build_engine_route_vers_xtts():
         engine="xtts", speed=1.15, voice_sample="pnj.wav", narration_sample="dida.wav"
     )
     with mock.patch.dict(sys.modules, modules):
-        moteur = build_engine(args)
+        moteur = build_engine(args, Vitesse(args.speed))
 
     assert isinstance(moteur, XttsEngine)
     assert rendus["device"] == "cuda"

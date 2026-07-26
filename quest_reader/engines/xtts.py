@@ -38,7 +38,7 @@ class XttsEngine(Engine):
 
     MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
 
-    def __init__(self, samples, speed):
+    def __init__(self, samples, vitesse):
         # Import tardif, comme les autres moteurs : le venv du projet n'a
         # pas torch, et l'importer au niveau module casserait tout le reste.
         import torch
@@ -58,7 +58,9 @@ class XttsEngine(Engine):
 
         self.tts = TTS(self.MODEL).to("cuda")
         self.samples = samples
-        self.speed = speed
+        # Vitesse partagée, mutée par l'overlay : relue à chaque « render »
+        # pour que le débit change à chaud, sans recharger le modèle (83 s).
+        self.vitesse = vitesse
         # Un seul fil : deux synthèses simultanées se disputeraient la carte
         # sans rien gagner. Il ne sert qu'à prendre une phrase d'avance.
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -74,7 +76,7 @@ class XttsEngine(Engine):
         self.tts.tts_to_file(
             text=sentence,
             language="fr",
-            speed=self.speed,
+            speed=self.vitesse.valeur,
             file_path=path,
             **voice_argument(sample),
         )

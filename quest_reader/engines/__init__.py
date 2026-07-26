@@ -25,8 +25,13 @@ XTTS_NARRATION = "Sofia Hellen"
 
 class Engine(abc.ABC):
     @abc.abstractmethod
-    def speak(self, text, narration):
-        """Synthétise et joue le texte. narration=True pour une didascalie."""
+    def speak(self, text, narration, generation):
+        """Synthétise et joue le texte. narration=True pour une didascalie.
+
+        « generation » identifie le dialogue courant : le moteur s'interrompt
+        si une nouvelle génération survient (un autre dialogue a pris le
+        dessus), pour ne pas finir de dire une réplique périmée.
+        """
 
 
 from quest_reader.engines.kokoro import KokoroEngine  # noqa: E402
@@ -73,16 +78,21 @@ def check_xtts(args):
         )
 
 
-def build_engine(args):
+def build_engine(args, vitesse):
+    """Construit le moteur choisi, alimenté par la vitesse partagée.
+
+    « vitesse » (objet « Vitesse ») remplace « args.speed » figé : le débit
+    devient mutable à chaud, relu à chaque réplique par le moteur.
+    """
     if args.engine == "xtts":
         return XttsEngine(
             {"dialogue": args.voice_sample, "narration": args.narration_sample},
-            args.speed,
+            vitesse,
         )
     if args.engine == "kokoro":
-        return KokoroEngine(args.speed)
+        return KokoroEngine(vitesse)
     return PiperEngine(
         {"dialogue": args.voice, "narration": args.narration_voice},
-        args.speed,
+        vitesse,
         args.pause,
     )
