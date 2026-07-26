@@ -26,6 +26,7 @@ from quest_reader.detection import (  # noqa: E402
 from quest_reader.engines import build_engine  # noqa: E402
 from quest_reader.playback import player_state  # noqa: E402
 from quest_reader.speaker import Speaker  # noqa: E402
+from quest_reader.speed import Vitesse  # noqa: E402
 from quest_reader.text import clean, clearest, same_dialog  # noqa: E402
 
 
@@ -46,7 +47,10 @@ def _trace(message):
 class Reader:
     def __init__(self, args):
         self.args = args
-        self.speaker = Speaker(lambda: build_engine(args))
+        # Vitesse partagée : le moteur la lit à chaque réplique, l'overlay la
+        # mute via ses boutons +/-. Créée ici pour la donner aux deux.
+        self.vitesse = Vitesse(args.speed)
+        self.speaker = Speaker(lambda: build_engine(args, self.vitesse))
         self.speaker.start()
         self.last_text = None
         # Position de la dernière bulle lue : sert à savoir, quand l'OCR

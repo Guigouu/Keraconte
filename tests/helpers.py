@@ -13,6 +13,7 @@ import cv2
 
 from quest_reader import Reader, clean
 from quest_reader.detection import find_bubbles
+from quest_reader.speed import Vitesse
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -71,6 +72,7 @@ def lecteur_nu(**etat):
     reader.last_box = None
     reader.last_seen = 0.0
     reader.pending = []
+    reader.vitesse = Vitesse(1.22)
     reader.args = types.SimpleNamespace(repeat_after=30)
     reader.__dict__.update(etat)
     return reader

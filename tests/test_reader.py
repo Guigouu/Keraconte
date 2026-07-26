@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from quest_reader import Reader  # noqa: E402
+from quest_reader.speed import Vitesse  # noqa: E402
 from quest_reader.text import clean  # noqa: E402
 from unittest import mock  # noqa: E402
 
@@ -22,6 +23,12 @@ from tests.helpers import (  # noqa: E402
     lecteur_nu,
     load,
 )
+
+
+def test_lecteur_nu_expose_une_vitesse():
+    """Le Reader porte une Vitesse partagée, transmise au moteur puis à
+    l'overlay. Le lecteur nu doit l'exposer comme le vrai « __init__ »."""
+    assert isinstance(lecteur_nu().vitesse, Vitesse)
 
 
 # Le dialogue du rototo, relevé en jeu : Dofus l'écrit progressivement, et
