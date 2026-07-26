@@ -18,6 +18,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from quest_reader.detection import (  # noqa: E402
     drop_replies,
+    drop_top_chrome,
     find_dialog,
     keep_word,
     reads_like_dialogue,
@@ -26,6 +27,7 @@ from quest_reader.text import clean, same_dialog  # noqa: E402
 from tests.helpers import (  # noqa: E402
     BRAKMAR,
     BWORKIDAIS,
+    BWORKNROLL,
     CLIQUETIS,
     ENROLEMENT,
     FIXTURES,
@@ -49,6 +51,14 @@ from tests.helpers import (  # noqa: E402
 @pytest.mark.parametrize("sample", SAMPLES, ids=IDS)
 def test_lit_le_dialogue(sample):
     assert clean(find_dialog(load(sample))) == sample["expected"]
+
+
+def test_lit_le_dialogue_sans_le_bandeau_d_icones():
+    """Bworknroll : le ⋮ et le ✕ du haut de bulle se collaient en « ë - » en
+    tête de chaque réplique. Le texte lu ne doit plus les porter."""
+    texte = clean(find_dialog(load(BWORKNROLL)))
+    assert texte == BWORKNROLL["expected"]
+    assert "ë" not in texte
 
 
 @pytest.mark.parametrize("sample", SAMPLES, ids=IDS)
@@ -301,6 +311,63 @@ def test_drop_replies_tolere_le_bruit_et_la_capitale_perdue(bruit, article):
            (303, "p")]
     )
     assert texte_de(drop_replies(mots)) == "Elles serviront à entraîner les bras cassés."
+
+
+def test_drop_top_chrome_retire_le_bandeau_d_icones():
+    """Vu chez Bworknroll : le ⋮ et le ✕ du haut de bulle sortent en « ë - »
+    AU-DESSUS de la première ligne de texte, avec une confiance qui les fait
+    passer keep_word. On les retire par géométrie : ils sont séparés du texte
+    par un écart bien plus large qu'un interligne (48 px mesurés, contre ~25
+    entre deux lignes), et ne pèsent que 2 mots sur 40 — minoritaires."""
+    mots = mots_places(
+        [(0, "-"), (13, "ë"),
+         (61, "Pour commencer : des canines de Gobelin, des cheveux de"),
+         (86, "Sadida et des os de Trooll. Voilà un scalpel qui te"),
+         (111, "permettra de désosser un Trooll. Il y en a dans le donjon"),
+         (135, "d'à côté ou dans la fosse.")]
+    )
+    garde = drop_top_chrome(mots)
+    assert "ë" not in {mot["text"] for mot in garde}
+    assert garde[0]["text"] == "Pour"
+
+
+def test_drop_top_chrome_epargne_un_dialogue_propre():
+    """Un dialogue sans bandeau a des interlignes réguliers : aucun écart ne
+    tranche sur les autres, on ne retire rien. Sinon on amputerait la première
+    ligne de tout dialogue."""
+    mots = mots_places(
+        [(20, "Tiens donc, une âme neutre en ces lieux."),
+         (40, "Je te conseille de t'enrôler pour Brâkmar."),
+         (60, "Le mal est toujours plus amusant."),
+         (80, "Si ça t'intéresse, ramène-moi 10 dagues.")]
+    )
+    assert drop_top_chrome(mots) == mots
+
+
+def test_drop_top_chrome_ne_touche_pas_les_bulles_courtes():
+    """Sous 4 groupes de lignes, la médiane des écarts n'a pas de sens : on ne
+    peut pas distinguer un bandeau d'un vrai interligne. On préfère laisser
+    passer le bruit que risquer d'amputer un dialogue court (« perdre un
+    dialogue est pire qu'en relire un »)."""
+    mots = mots_places(
+        [(0, "ë"),
+         (61, "Bonjour aventurier."),
+         (86, "Que puis-je pour toi ?")]
+    )
+    assert drop_top_chrome(mots) == mots
+
+
+def test_drop_top_chrome_epargne_une_tete_majoritaire():
+    """Garde de proportion : si le bloc au-dessus du plus grand écart porte
+    l'essentiel des mots, c'est du vrai texte (un saut de paragraphe), pas un
+    bandeau d'icônes — on ne retire rien même si un écart tranche."""
+    mots = mots_places(
+        [(20, "Voici une première phrase assez longue pour peser."),
+         (40, "Elle continue sur une deuxième ligne bien remplie."),
+         (60, "Et même une troisième pour faire le poids du haut."),
+         (140, "brève.")]  # gros écart avant une ligne minuscule
+    )
+    assert drop_top_chrome(mots) == mots
 
 
 @pytest.mark.parametrize(
