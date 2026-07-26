@@ -7,8 +7,11 @@ l'accès concurrent : ce ne sont que des flottants Python, mais l'un écrit
 pendant que l'autre lit, donc on synchronise.
 
 Le débit change ainsi À CHAUD, sans reconstruire le moteur — reconstruire
-rechargerait un modèle (jusqu'à 83 s pour XTTS). Le changement prend effet à
-la réplique suivante, puisque le moteur relit « valeur » à chaque « speak ».
+rechargerait un modèle (jusqu'à 83 s pour XTTS). Le changement prend effet dès
+la phrase suivante de la réplique en cours : les moteurs relisent « valeur » à
+chaque phrase (Piper reconstruit sa config, XTTS et Kokoro passent le débit).
+Un audio déjà remis à la lecture ne peut plus changer — la phrase est donc la
+granularité la plus fine atteignable.
 """
 
 import threading

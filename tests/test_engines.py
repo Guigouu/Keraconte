@@ -49,6 +49,74 @@ def faux_piper(rendus):
     return faux_module
 
 
+def faux_piper_suite(rendus, apres_phrase=None):
+    """Double « piper » et capture le « length_scale » de CHAQUE phrase.
+
+    À la différence de « faux_piper » (qui n'écrase qu'un seul scale), on
+    empile la suite complète dans « rendus["scales"] ». « apres_phrase » est
+    un crochet appelé après la synthèse de chaque phrase (numéro depuis 1) :
+    il sert à muter la Vitesse entre deux phrases pour éprouver le débit à
+    chaud AU SEIN d'une même réplique.
+    """
+
+    class FausseVoix:
+        def __init__(self):
+            self._rang = 0
+
+        @staticmethod
+        def load(path):
+            return FausseVoix()
+
+        def synthesize_wav(self, texte, sortie, syn_config):
+            sortie.setnchannels(1)
+            sortie.setsampwidth(2)
+            sortie.setframerate(22050)
+            sortie.writeframes(b"\x00\x00")
+            self._rang += 1
+            if apres_phrase is not None:
+                apres_phrase(self._rang)
+
+    def faux_config(length_scale):
+        rendus.setdefault("scales", []).append(length_scale)
+        return None
+
+    faux_module = types.ModuleType("piper")
+    faux_module.PiperVoice = FausseVoix
+    faux_module.SynthesisConfig = faux_config
+    return faux_module
+
+
+def test_piper_relit_la_vitesse_entre_deux_phrases():
+    """La vitesse change DÈS la phrase suivante de la réplique EN COURS.
+
+    Piper calculait « SynthesisConfig(length_scale) » UNE fois avant la boucle
+    « for sentence » : le débit était figé pour toute la réplique. On le
+    reconstruit désormais à chaque phrase. Ce test mute la Vitesse après la
+    1ʳᵉ phrase et attend un « length_scale » différent sur la 2ᵉ. ROUGE tant
+    que la config est calculée hors de la boucle.
+    """
+    rendus = {}
+    vitesse = Vitesse(1.0)
+
+    def muter(rang):
+        if rang == 1:
+            vitesse.augmenter()  # 1.0 → 1.1, au milieu de la réplique
+
+    faux_module = faux_piper_suite(rendus, apres_phrase=muter)
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "quest_reader.engines.piper.play_wave"
+    ):
+        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse, 0)
+        moteur.speak(
+            "Bonjour. Rebonjour.", narration=False, generation=playback.generation
+        )
+
+    scales = rendus["scales"]
+    assert len(scales) == 2  # deux phrases synthétisées
+    assert scales[0] == pytest.approx(1 / 1.0)
+    assert scales[1] == pytest.approx(1 / 1.1)
+
+
 def test_speed_accelere_les_deux_moteurs():
     """« --speed » est un débit : au-dessus de 1, la parole va plus vite.
 
