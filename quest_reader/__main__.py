@@ -115,6 +115,7 @@ def lancer_avec_overlay(args):
         couper=reader.speaker.silence,
         reselectionner=reader.demander_reselection,
         fermer=app.quit,
+        vitesse=reader.vitesse,
     )
     overlay.show()
 
