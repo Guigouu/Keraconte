@@ -247,3 +247,109 @@ def test_la_poignee_deplace_la_fenetre_au_glisser(app):
     overlay.poignee.mouseMoveEvent(_FauxEvenement(QPoint(300, 300)))
     # Bouton relâché : plus de glisser, la fenêtre ne bouge plus.
     assert overlay.widget.pos() == QPoint(120, 140)
+
+
+def test_la_poignee_de_taille_agrandit_la_barre_au_glisser(app):
+    """Glisser la poignée de taille vers l'extérieur agrandit la barre.
+
+    La barre grandit par ÉCHELLE DE POLICE, pas par géométrie : le
+    QHBoxLayout épingle « minimumSize » à la somme des « sizeHint », donc un
+    resize géométrique ne peut pas rétrécir et n'ajouterait que du vide. On
+    vérifie que le glisser fait croître l'échelle, la police du widget, et la
+    largeur du label de vitesse (dont la largeur fixe était figée à l'init —
+    le bug qu'on corrige ici : « 9.9× » aurait été tronqué à grande échelle).
+    """
+    from PySide6.QtCore import QPoint
+
+    overlay = _overlay(PlayerState())
+    echelle_depart = overlay._echelle
+    police_depart = overlay.widget.font().pointSizeF()
+    label_depart = overlay.label_vitesse.width()
+
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(240, 240)))
+
+    assert overlay._echelle > echelle_depart
+    assert overlay.widget.font().pointSizeF() > police_depart
+    assert overlay.label_vitesse.width() > label_depart
+
+
+def test_la_poignee_de_taille_borne_l_echelle(app):
+    """Un glisser énorme ne dépasse pas ECHELLE_MAX (échelle bornée).
+
+    On mappe le glisser en ABSOLU (ancré au press), pas en incrémental : sans
+    borne, ou en accumulant par événement, dépasser puis revenir « décrocherait »
+    la poignée du curseur. On tire très loin et l'on vérifie l'écrêtage.
+    """
+    from PySide6.QtCore import QPoint
+
+    from quest_reader.overlay import ECHELLE_MAX
+
+    overlay = _overlay(PlayerState())
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(9000, 9000)))
+
+    assert overlay._echelle == ECHELLE_MAX
+
+
+def test_la_poignee_de_taille_reduit_puis_borne_au_minimum(app):
+    """Glisser vers l'intérieur réduit l'échelle, sans passer sous ECHELLE_MIN."""
+    from PySide6.QtCore import QPoint
+
+    from quest_reader.overlay import ECHELLE_MAX, ECHELLE_MIN
+
+    overlay = _overlay(PlayerState())
+    # On part d'une échelle haute pour avoir de la marge de réduction.
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(9000, 9000)))
+    assert overlay._echelle == ECHELLE_MAX
+
+    # Nouveau glisser, vers l'intérieur, très loin : borné au minimum.
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(-9000, -9000)))
+    assert overlay._echelle == ECHELLE_MIN
+
+
+def test_la_poignee_de_taille_ne_bouge_plus_apres_relachement(app):
+    """Bouton relâché : un « mouseMove » ne change plus l'échelle.
+
+    Miroir de « test_la_poignee_deplace_la_fenetre_au_glisser » : hors glisser
+    actif, la poignée ignore les mouvements.
+    """
+    from PySide6.QtCore import QPoint
+
+    overlay = _overlay(PlayerState())
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(240, 240)))
+    echelle_glissee = overlay._echelle
+
+    overlay.poignee_taille.mouseReleaseEvent(_FauxEvenement(QPoint(240, 240)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(500, 500)))
+    assert overlay._echelle == echelle_glissee
+
+
+def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
+    """Agrandir garde « minimumSize != maximumSize » : pas de « setFixedSize ».
+
+    On élargit les boutons par « setMinimumWidth » (le style Qt fige leur
+    largeur à ~80 px sinon, la police seule ne les élargit pas), mais JAMAIS
+    par « setFixedSize » — qui avait gonflé la fenêtre en carré. Le test garde
+    ce contrat même à échelle maximale.
+    """
+    from PySide6.QtCore import QPoint
+
+    overlay = _overlay(PlayerState())
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(9000, 9000)))
+
+    boutons = [
+        overlay.bouton_pause,
+        overlay.bouton_stop,
+        overlay.bouton_reprise,
+        overlay.bouton_moins,
+        overlay.bouton_plus,
+        overlay.bouton_source,
+        overlay.bouton_fermer,
+    ]
+    for bouton in boutons:
+        assert bouton.minimumSize() != bouton.maximumSize()
