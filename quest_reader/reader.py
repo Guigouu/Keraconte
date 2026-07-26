@@ -59,10 +59,20 @@ class Reader:
             self.pipeline.set_state(Gst.State.NULL)
             self.pipeline = None
         # videorate limite l'OCR : le flux monte à 60 fps, on n'en veut qu'un peu.
+        # « queue leaky=downstream » est indispensable : l'OCR (250–820 ms/image)
+        # est plus lent que le débit, et le « drop » de l'appsink ne suffit pas
+        # — les tampons de videoconvert/videorate accumulaient les vieilles
+        # images, d'où un retard qui grandissait sans fin (plusieurs minutes) et
+        # un décalage d'un dialogue. La queue jette les images ANCIENNES
+        # (downstream) dès que l'aval traîne : on traite toujours la plus
+        # récente, on suit le direct (retard borné, mesuré ~4 ms au lieu de 4 s
+        # accumulées en 6 s).
         self.pipeline = Gst.parse_launch(
             f"pipewiresrc fd={fd} path={node_id} ! videorate ! "
             f"video/x-raw,framerate={self.args.fps}/1 ! videoconvert ! "
-            "video/x-raw,format=BGR ! appsink name=sink emit-signals=true "
+            "video/x-raw,format=BGR ! "
+            "queue leaky=downstream max-size-buffers=1 ! "
+            "appsink name=sink emit-signals=true "
             "max-buffers=1 drop=true sync=false"
         )
         sink = self.pipeline.get_by_name("sink")
