@@ -132,3 +132,38 @@ def test_bump_coupe_le_flux_en_cours():
     pb.current = sortie
     pb.bump()
     assert sortie.ferme
+
+
+class _FauxSounddevice:
+    """Tient le rôle du module sounddevice pour « _choisir_peripherique »."""
+
+    def __init__(self, peripheriques):
+        self._peripheriques = peripheriques
+
+    def query_devices(self):
+        return self._peripheriques
+
+
+def test_choisir_prefere_pipewire_au_defaut_alsa():
+    """Sur un système PipeWire, on évite le « default » ALSA (EBADFD) et on
+    prend « pipewire », qui route proprement."""
+    pb = _playback()
+    peripheriques = [
+        {"name": "default", "max_output_channels": 128},
+        {"name": "pulse", "max_output_channels": 32},
+        {"name": "pipewire", "max_output_channels": 128},
+    ]
+    index = pb._choisir_peripherique(_FauxSounddevice(peripheriques))
+    assert index == 2  # « pipewire » est préféré, même après « pulse »
+
+
+def test_choisir_renvoie_none_sans_pipewire_ni_pulse():
+    """Sans PipeWire ni pulse (autre OS, machine nue), on laisse le défaut de
+    sounddevice (index None) : portabilité."""
+    pb = _playback()
+    peripheriques = [
+        {"name": "default", "max_output_channels": 2},
+        {"name": "hw:0,0", "max_output_channels": 2},
+    ]
+    index = pb._choisir_peripherique(_FauxSounddevice(peripheriques))
+    assert index is None

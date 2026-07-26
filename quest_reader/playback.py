@@ -59,17 +59,42 @@ class Playback:
         echantillons = np.frombuffer(brut, dtype=np.int16).reshape(-1, canaux)
         return echantillons, frequence
 
+    def _choisir_peripherique(self, sounddevice):
+        """Renvoie l'index d'un périphérique PipeWire/pulse, ou None (défaut).
+
+        Sur un système PipeWire, le périphérique ALSA « default » est souvent
+        un plughw/dmix générique (128 canaux) sur lequel « OutputStream.start »
+        échoue en « EBADFD » (descripteur en mauvais état). PipeWire expose
+        « pipewire » et « pulse » comme sorties propres, qui routent et
+        rééchantillonnent correctement. On les préfère quand ils existent ;
+        sinon on renvoie None et sounddevice garde son défaut (portabilité :
+        machines sans PipeWire, autres OS).
+        """
+        for nom in ("pipewire", "pulse"):
+            for index, peripherique in enumerate(sounddevice.query_devices()):
+                if (
+                    peripherique["name"] == nom
+                    and peripherique["max_output_channels"] > 0
+                ):
+                    return index
+        return None
+
     def _ouvrir_sortie(self, frequence, canaux):
         """Ouvre un flux sounddevice. Import tardif : PortAudio peut manquer.
 
         « import sounddevice » lève OSError à l'import quand PortAudio est
         absent — d'où l'import ici et non au niveau module, sur le modèle de
-        torch dans xtts.py. Renvoie un OutputStream déjà démarré.
+        torch dans xtts.py. Renvoie un OutputStream déjà démarré, sur un
+        périphérique PipeWire/pulse quand il y en a un (voir
+        « _choisir_peripherique »).
         """
         import sounddevice
 
         flux = sounddevice.OutputStream(
-            samplerate=frequence, channels=canaux, dtype="int16"
+            samplerate=frequence,
+            channels=canaux,
+            dtype="int16",
+            device=self._choisir_peripherique(sounddevice),
         )
         flux.start()
         return flux
