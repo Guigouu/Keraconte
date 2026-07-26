@@ -117,6 +117,31 @@ def test_piper_relit_la_vitesse_entre_deux_phrases():
     assert scales[1] == pytest.approx(1 / 1.1)
 
 
+@pytest.mark.parametrize(
+    "texte, pauses_attendues",
+    [
+        ("Bonjour. Rebonjour.", 1),  # deux phrases : UNE pause entre elles
+        ("Bonjour seul.", 0),  # une seule phrase : aucune pause
+    ],
+)
+def test_piper_pause_entre_phrases_pas_apres_la_derniere(texte, pauses_attendues):
+    """La pause sépare deux phrases ; elle ne suit jamais la dernière.
+
+    Le « sleep(pause) » était placé en fin de boucle, donc s'exécutait aussi
+    après la dernière phrase : un silence mort avant que la voix se rende. On
+    l'a déplacé en tête, sauf avant la 1ʳᵉ phrase. N phrases → N−1 pauses.
+    """
+    rendus = {}
+    faux_module = faux_piper_suite(rendus)
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "quest_reader.engines.piper.play_wave"
+    ), mock.patch("quest_reader.engines.piper.time.sleep") as dors:
+        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse=Vitesse(1.0), pause=320)
+        moteur.speak(texte, narration=False, generation=playback.generation)
+
+    assert dors.call_count == pauses_attendues
+
+
 def test_speed_accelere_les_deux_moteurs():
     """« --speed » est un débit : au-dessus de 1, la parole va plus vite.
 

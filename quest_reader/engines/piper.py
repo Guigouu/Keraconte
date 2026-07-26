@@ -34,12 +34,20 @@ class PiperEngine(Engine):
 
     def speak(self, text, narration, generation):
         voice = self.voices["narration" if narration else "dialogue"]
+        premiere = True
         for sentence in split_sentences(pronounce(text)):
             # Le découpage isole parfois une ponctuation seule (« Ah… ! »).
             if not speakable(sentence):
                 continue
             if generation != playback.generation:  # nouveau dialogue survenu
                 return
+            # La pause sépare deux phrases : on la place EN TÊTE, sauf avant la
+            # première. Elle ne s'exécute donc plus après la dernière phrase, où
+            # elle n'ajoutait qu'un silence mort avant que la voix se rende (320
+            # ms par défaut) — sans rien séparer.
+            if not premiere:
+                time.sleep(self.pause / 1000)
+            premiere = False
             # Piper raisonne en durée : au-dessus de 1, il ralentit. On expose
             # un débit, donc on inverse. Recalculé À CHAQUE phrase, et non une
             # fois avant la boucle : muter la vitesse au milieu d'une réplique
@@ -50,4 +58,3 @@ class PiperEngine(Engine):
                 with wave.open(handle.name, "wb") as output:
                     voice.synthesize_wav(sentence, output, syn_config=config)
                 play_wave(handle.name, generation)
-            time.sleep(self.pause / 1000)

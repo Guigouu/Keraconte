@@ -4,9 +4,7 @@ Sommet du DAG : dépend de la détection, du texte, du fil de synthèse et de la
 capture. Décode le flux vidéo via Gst et orchestre le tout.
 """
 
-import os
 import signal
-import sys
 import time
 
 import numpy as np
@@ -21,6 +19,7 @@ import dbus.mainloop.glib  # noqa: E402
 from quest_reader.capture import ScreenCast, forget_token  # noqa: E402
 from quest_reader.detection import (  # noqa: E402
     bubble_still_there,
+    find_bubbles,
     find_dialog_box,
 )
 from quest_reader.engines import build_engine  # noqa: E402
@@ -28,20 +27,10 @@ from quest_reader.playback import player_state  # noqa: E402
 from quest_reader.speaker import Speaker  # noqa: E402
 from quest_reader.speed import Vitesse  # noqa: E402
 from quest_reader.text import clean, clearest, same_dialog  # noqa: E402
+from quest_reader.trace import trace as _trace  # noqa: E402
 
 
 CLOSED_AFTER = 2  # images sans bulle avant de couper la voix
-
-# Journal de diagnostic, silencieux par défaut. Activé par « QR_DEBUG=1 » dans
-# l'environnement, il trace sur stderr le verdict de détection de chaque image
-# et chaque décision (say/silence), pour localiser une coupure sans changer le
-# comportement. À n'utiliser que pour déboguer en jeu.
-_DEBUG = bool(os.environ.get("QR_DEBUG"))
-
-
-def _trace(message):
-    if _DEBUG:
-        print(f"[qr] {message}", file=sys.stderr, flush=True)
 
 
 class Reader:
@@ -128,9 +117,16 @@ class Reader:
         # le dessus et lèvera la pause.
         if player_state.arrete:
             return
-        text, box = find_dialog_box(frame)
+        # Segmenter une seule fois par image : « find_dialog_box » et, en
+        # l'absence de texte, « bubble_still_there » travaillent sur la même
+        # image. Sans ce partage, « find_bubbles » (morphologie pleine image,
+        # ~6–50 ms) tournait deux fois sur chaque image sans dialogue.
+        _t0 = time.perf_counter()
+        boxes, _ = find_bubbles(frame)
+        _trace(f"segmentation : {(time.perf_counter() - _t0) * 1000:.0f}ms | {len(boxes)} boxe(s)")
+        text, box = find_dialog_box(frame, boxes)
         if not text:
-            revue = bubble_still_there(frame, self.last_box)
+            revue = bubble_still_there(frame, self.last_box, boxes)
             _trace(
                 f"image SANS texte | bulle_encore_là={revue} "
                 f"| missing={self.missing} | last_box={self.last_box}"
@@ -197,12 +193,20 @@ class Reader:
             return
         # Encore en train de s'écrire : attendre l'image suivante.
         if len(text) > max(len(seen) for seen in self.pending[:-1]):
+            _trace(
+                f"pending: encore en croissance ({len(text)} car., "
+                f"{len(self.pending)} variante(s))"
+            )
             return
+        _images_avant_say = len(self.pending)
         text = clearest(*self.pending)
         self.pending = []
         self.last_text = text
         self.last_seen = now
-        _trace(f">>> SAY : lance la lecture ({len(text)} car.)")
+        _trace(
+            f">>> SAY : lance la lecture ({len(text)} car., "
+            f"posé après {_images_avant_say} image(s))"
+        )
         print(f"\n> {text}", flush=True)
         self.speaker.say(text)
 

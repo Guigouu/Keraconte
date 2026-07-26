@@ -4,6 +4,7 @@ joueur.
 """
 
 import re
+import time
 
 import cv2
 import numpy as np
@@ -11,6 +12,7 @@ import pytesseract
 from PIL import Image
 
 from quest_reader.text import clean
+from quest_reader.trace import trace as _trace
 
 # Deux habillages de bulle coexistent selon le thème choisi dans le jeu.
 #
@@ -261,7 +263,7 @@ def find_dialog(frame):
     return text
 
 
-def find_dialog_box(frame):
+def find_dialog_box(frame, boxes=None):
     """Renvoie (texte, boîte) de la bulle de dialogue, ou (None, None).
 
     La boîte — (y, x, w, h) du contour lu — sert au lecteur à savoir, quand
@@ -272,8 +274,16 @@ def find_dialog_box(frame):
 
     Le bloc de réponses partage l'aspect de la bulle : on ne garde que le
     bloc le plus haut, qui est toujours le dialogue lui-même.
+
+    « boxes » permet de réutiliser une segmentation déjà faite : quand l'image
+    n'a pas de texte, le lecteur rappelle « bubble_still_there » sur la même
+    image, et « find_bubbles » (morphologie pleine image) tournait deux fois.
+    Fourni, on ne re-segmente pas ; laissé à None, on segmente comme avant —
+    l'API reste inchangée pour les tests et le chemin « --test ».
     """
-    boxes, height = find_bubbles(frame)
+    if boxes is None:
+        boxes, _ = find_bubbles(frame)
+    _ocr_ms = 0.0
 
     # Un dialogue de PNJ est toujours suivi d'un bloc de réponses juste
     # en dessous. Les panneaux d'interface, eux, sont isolés : exiger la
@@ -310,9 +320,19 @@ def find_dialog_box(frame):
         # image_to_data plutôt que image_to_string : c'est le seul moyen
         # d'obtenir la confiance et la boîte de chaque mot, sur lesquelles
         # reposent le tri du bruit et le repérage des réponses.
+        # On garde le moteur par défaut « --oem 3 » (legacy + LSTM fusionnés).
+        # « --oem 1 » (LSTM seul) est ~35 % plus rapide et rend un texte
+        # identique sur une bulle simple, MAIS il place les boîtes par mot
+        # autrement : sur un bloc fusionné à ses réponses (cas Roukerol),
+        # « drop_replies » — qui sépare dialogue et réponses par le large blanc
+        # entre boîtes — coupe alors tout sauf un mot, et le dialogue n'est plus
+        # lu du tout. Le gain de vitesse ne vaut pas la perte d'un cas réel ;
+        # ré-ajuster « drop_replies » pour OEM 1 serait un chantier à part.
+        _t1 = time.perf_counter()
         data = pytesseract.image_to_data(
             Image.fromarray(crop), lang="fra", output_type=pytesseract.Output.DICT
         )
+        _ocr_ms += (time.perf_counter() - _t1) * 1000
         words = read_words(data)
         # Sur un bloc fusionné, l'OCR ramène aussi les réponses du joueur :
         # elles se détachent par un large blanc, pas par leur grammaire.
@@ -325,11 +345,13 @@ def find_dialog_box(frame):
         text = clean(" ".join(word["text"] for word in words))
         floor = MIN_CHARS if replies is None else MIN_CHARS_PAIRED
         if len(text) >= floor:
+            _trace(f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
             return text, (y, x, w, h)
+    _trace(f"find_dialog_box: RIEN | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
     return None, None
 
 
-def bubble_still_there(frame, box):
+def bubble_still_there(frame, box, boxes=None):
     """La bulle lue à « box » occupe-t-elle toujours sa place à l'écran ?
 
     Sert quand l'OCR redevient muet : on ne coupe la voix que si CETTE bulle
@@ -337,11 +359,16 @@ def bubble_still_there(frame, box):
     tiennent jamais la place de la bulle. Un simple « une bulle existe » ne
     suffisait pas : ces panneaux permanents comptaient comme une bulle et
     empêchaient toute coupure à la fermeture du dialogue.
+
+    « boxes » réutilise une segmentation déjà faite par « find_dialog_box » sur
+    la même image, pour ne pas relancer « find_bubbles » (morphologie pleine
+    image) une seconde fois. Laissé à None, on segmente — l'API reste inchangée.
     """
     if box is None:
         return False
     y, x, w, h = box
-    boxes, _ = find_bubbles(frame)
+    if boxes is None:
+        boxes, _ = find_bubbles(frame)
     for (cy, cx, cw, ch) in boxes:
         if (
             abs(cx - x) <= w * SAME_BOX_TOLERANCE
