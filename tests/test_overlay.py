@@ -153,20 +153,19 @@ def test_le_label_de_vitesse_reflete_la_valeur_courante(app):
     assert overlay.label_vitesse.text() == "1.0×"
 
 
-def test_les_boutons_gardent_leur_taille_naturelle(app):
-    """Aucune taille n'est forcée : chaque bouton prend son « sizeHint ».
+def test_les_boutons_ne_sont_pas_un_carre_qui_gonfle_la_fenetre(app):
+    """La taille des boutons est figée, mais RECTANGULAIRE (large > haut).
 
-    Une version intermédiaire figeait toute la rangée à un carré du plus grand
-    côté (« setFixedSize(cote, cote) »). Le « sizeHint » d'un QPushButton est
-    bien plus LARGE que HAUT (padding horizontal du style) : le carré prenait
-    donc la largeur comme hauteur et gonflait toute la fenêtre. Les glyphes
-    emoji ➕/➖ étant abandonnés au profit de « + » et « − », l'uniformisation
-    n'a plus lieu d'être — on laisse Qt dimensionner naturellement.
+    Pour compacter la barre on borne min ET max des boutons (largeur ET hauteur).
+    Le bug historique, lui, figeait la rangée à un CARRÉ du plus grand côté
+    (« setFixedSize(cote, cote) ») : le « sizeHint » d'un QPushButton étant bien
+    plus large que haut, ce carré prenait la largeur (~80) comme hauteur et
+    gonflait la fenêtre. Ici on fige à des valeurs choisies, plus PETITES que le
+    naturel et toujours plus larges que hautes — la fenêtre rétrécit, elle ne
+    gonfle pas. On vérifie ce contrat (largeur > hauteur), pas « min != max ».
     """
-    # Le ✕ est EXCLU : posé dans son bandeau façon bouton-fenêtre, il est le
-    # seul à porter un « setFixedSize » (petit carré) — légitime hors de la
-    # rangée. Le bug historique figeait TOUTE la rangée ; c'est elle qu'on garde
-    # libre.
+    # Le ✕ est EXCLU : posé dans son coin façon bouton-fenêtre, il porte son
+    # propre setFixedSize (petit carré légitime, hors rangée).
     overlay = _overlay(PlayerState())
     boutons = [
         overlay.bouton_pause,
@@ -176,11 +175,56 @@ def test_les_boutons_gardent_leur_taille_naturelle(app):
         overlay.bouton_plus,
         overlay.bouton_source,
     ]
-    # Taille NON figée : min et max restent aux valeurs par défaut de Qt (min
-    # sous le sizeHint, max quasi infini), preuve qu'aucun « setFixedSize »
-    # carré ne subsiste sur la rangée.
     for bouton in boutons:
-        assert bouton.minimumSize() != bouton.maximumSize()
+        # Plus large que haut : pas le carré du plus grand côté qui gonflait la
+        # fenêtre. Et hauteur bien sous le sizeHint naturel (~29 px).
+        assert bouton.maximumWidth() > bouton.maximumHeight()
+        assert bouton.maximumHeight() < 29
+
+
+def test_les_boutons_sont_compacts(app):
+    """Les boutons sont resserrés autour de leur glyphe, pas au plancher Qt.
+
+    Un QPushButton d'un seul caractère prend ~80 px de large par défaut (padding
+    horizontal du style Qt), alors que le glyphe fait ~11 px : 80 px, c'est
+    surtout du vide. Demandé pour compacter la barre, on force une largeur de
+    base bien plus petite (glyphe + petit padding), qui suit ensuite l'échelle.
+    On vérifie que la largeur figée reste franchement sous le plancher, sans
+    passer sous une cible de clic raisonnable.
+    """
+    overlay = _overlay(PlayerState())
+    overlay.widget.adjustSize()
+    for bouton in [
+        overlay.bouton_pause,
+        overlay.bouton_stop,
+        overlay.bouton_reprise,
+        overlay.bouton_moins,
+        overlay.bouton_plus,
+        overlay.bouton_source,
+    ]:
+        # Largeur AFFICHÉE (pas seulement le minimumWidth) : le sizeHint de 80 px
+        # tire la largeur réelle si on ne borne pas aussi le maximum. Nettement
+        # sous le plancher de 80 px, mais assez large pour cliquer.
+        assert 30 <= bouton.width() <= 50
+
+
+def test_la_barre_a_des_marges_verticales_fines(app):
+    """Les marges haut/bas de la barre sont resserrées, sans toucher aux boutons.
+
+    Par défaut le QHBoxLayout pose 11 px de marge en haut ET en bas : la barre
+    fait ~61 px alors que les boutons n'en font que ~29. Demandé pour l'affiner,
+    on réduit ces marges verticales — les boutons GARDENT leur taille et leur
+    forme, seule la bande autour rétrécit. On vérifie que la barre serre les
+    boutons de près (marge verticale totale faible), pas la hauteur des boutons.
+    """
+    overlay = _overlay(PlayerState())
+    overlay.widget.adjustSize()
+    hauteur_barre = overlay.widget.sizeHint().height()
+    hauteur_bouton = overlay.bouton_pause.sizeHint().height()
+    # La barre ne dépasse le plus grand bouton que d'une marge fine. Avec les
+    # marges par défaut (11 px h/b) l'écart valait 32 px ; resserrées, il tombe
+    # bien plus bas. Garde-fou contre le retour de la bande vide.
+    assert hauteur_barre - hauteur_bouton <= 20
 
 
 def test_les_boutons_vitesse_sont_actifs_par_defaut(app):
@@ -331,13 +375,14 @@ def test_la_poignee_de_taille_ne_bouge_plus_apres_relachement(app):
     assert overlay._echelle == echelle_glissee
 
 
-def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
-    """Agrandir garde « minimumSize != maximumSize » : pas de « setFixedSize ».
+def test_les_boutons_restent_rectangulaires_meme_a_grande_echelle(app):
+    """À échelle max, les boutons restent RECTANGULAIRES (large > haut).
 
-    On élargit les boutons par « setMinimumWidth » (le style Qt fige leur
-    largeur à ~80 px sinon, la police seule ne les élargit pas), mais JAMAIS
-    par « setFixedSize » — qui avait gonflé la fenêtre en carré. Le test garde
-    ce contrat même à échelle maximale.
+    On borne largeur ET hauteur des boutons (× échelle) pour compacter la barre,
+    mais à des valeurs choisies plus larges que hautes — jamais le CARRÉ du plus
+    grand côté (« setFixedSize(cote, cote) ») qui avait gonflé la fenêtre. Le
+    test garde ce contrat même à échelle maximale : chaque bouton demeure plus
+    large que haut, donc la barre grandit sans devenir un pavé.
     """
     from PySide6.QtCore import QPoint
 
@@ -355,7 +400,7 @@ def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
         overlay.bouton_source,
     ]
     for bouton in boutons:
-        assert bouton.minimumSize() != bouton.maximumSize()
+        assert bouton.maximumWidth() > bouton.maximumHeight()
 
 
 def test_la_croix_ne_suit_pas_l_echelle_de_police(app):
