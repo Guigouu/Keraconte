@@ -54,14 +54,15 @@ def _poignee_taille(overlay):
             super().__init__("◢")
             self.setToolTip("Glisser pour redimensionner la barre")
             self.setCursor(Qt.SizeFDiagCursor)
-            # Sans ça, le QHBoxLayout centre le triangle verticalement : on
-            # l'ancre en bas, là où se trouve le « coin » qu'on saisit.
-            self.setAlignment(Qt.AlignBottom | Qt.AlignRight)
-            # Le glyphe seul ne fait que ~12 px de large et jouxte « ✕ » : rater
-            # la poignée de quelques pixels vers la gauche fermerait l'appli en
-            # pleine lecture. On élargit la zone de préhension. La largeur suit
-            # la police (héritée), donc c'est surtout à petite échelle qu'elle
-            # protège ; on ne fige pas la hauteur (le layout gère le vertical).
+            # On ancre le triangle en bas (là où se trouve le « coin » qu'on
+            # saisit) et CENTRÉ horizontalement : dans la colonne du coin, le ✕
+            # est juste au-dessus ; un « AlignRight » décalerait le glyphe de la
+            # poignée hors de l'axe du ✕ (chacun centré sur une verticale
+            # différente). Centrer les deux les aligne parfaitement.
+            self.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
+            # Le glyphe seul ne fait que ~12 px de large : on élargit la zone de
+            # préhension pour ne pas rater la poignée. La largeur suit la police
+            # (héritée) ; on ne fige pas la hauteur (le layout gère le vertical).
             self.setMinimumWidth(24)
             self._ancre = None  # (curseur, échelle) au clic, ou None au repos
 
@@ -236,7 +237,7 @@ class Overlay:
         # VEUT qu'il reste petit et constant.
         self.bouton_fermer = QPushButton("✕")
         self.bouton_fermer.setToolTip("Fermer")
-        self.bouton_fermer.setFixedSize(22, 22)
+        self.bouton_fermer.setFixedSize(24, 22)
         # Glyphe plat, sans fond ni bordure — façon ✕ de barre de titre. Un
         # QPushButton par défaut reste une boîte en relief qui « pèse » à l'œil ;
         # à plat, 22 px retrouvent la taille du ✕ des fenêtres voisines (Konsole)
