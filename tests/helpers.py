@@ -203,6 +203,21 @@ BWORKIDAIS = {
 }
 
 
+# Relevé en jeu chez Bworknroll. Le bandeau du haut de bulle (⋮ à gauche, ✕
+# à droite) sortait à l'OCR en « ë - » AU-DESSUS du texte, avec une confiance
+# qui les faisait passer « keep_word » : ils se collaient en tête de chaque
+# réplique lue. « drop_top_chrome » les retire par géométrie. « expected »
+# reprend ce que l'OCR rend vraiment (le « : » après « commencer » saute, le
+# bruit intra-ligne « _kd'à » subsiste — hors du périmètre de ce correctif),
+# non le texte à l'écran.
+BWORKNROLL = {
+    "file": "dialogue_bworknroll.png",
+    "expected": "Pour commencer des canines de Gobelin, des cheveux de Sadida "
+    "et des os de Trooll. Voilà un scalpel qui te permettra de désosser un "
+    "Trooll. Il y en a dans le donjon _kd'à côté ou dans la fosse.",
+}
+
+
 def faux_xtts(rendus):
     """Remplace torch, transformers et TTS par des doublures.
 

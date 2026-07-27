@@ -152,6 +152,22 @@ MIN_REPLY_LINE_GAP = 40
 # Deux mots d'une même ligne diffèrent de quelques pixels en ordonnée : leurs
 # lignes de base ne coïncident pas au pixel près (mesuré jusqu'à 4 px).
 LINE_TOLERANCE = 10
+# Le bandeau d'icônes en haut de bulle (⋮, ✕) sort à l'OCR en mots isolés
+# posés AU-DESSUS de la première ligne de texte, séparés d'elle par un écart
+# bien plus large qu'un interligne. Mesuré chez Bworknroll : écart bandeau→texte
+# 48 px pour un interligne de 25 (ratio 1,96), quand un dialogue propre a des
+# écarts réguliers (ratio ≤ 1,08 sur enrolement/roukerol). Le seuil se pose au
+# milieu. On compare le plus grand écart à la MÉDIANE DES AUTRES : l'inclure
+# fausserait la référence par le bruit même qu'on isole.
+TOP_CHROME_GAP_RATIO = 1.5
+# On ne retire la bande de tête que si elle est minoritaire : au-dessus de
+# cette part des mots, le « haut » porte du vrai texte (saut de paragraphe),
+# pas des icônes. Chez Bworknroll le bandeau pèse 2 mots sur 40.
+MAX_TOP_CHROME_RATIO = 0.3
+# En deçà de ce nombre de groupes de lignes, la médiane des écarts n'a pas de
+# sens (0 ou 1 autre écart) : on ne peut pas distinguer un bandeau d'un vrai
+# interligne, donc on ne retire rien — quitte à laisser passer le bruit.
+MIN_LINES_FOR_CHROME = 4
 
 
 def bubble_mask(frame):
@@ -338,6 +354,10 @@ def find_dialog_box(frame, boxes=None):
         # elles se détachent par un large blanc, pas par leur grammaire.
         if replies is None:
             words = drop_replies(words)
+        # Le bandeau d'icônes du haut de bulle (⋮, ✕) sort en « ë - » au-dessus
+        # du texte : inconditionnel (la bulle appariée n'est pas passée par
+        # « drop_replies »), avant tout calcul en aval qu'il polluerait.
+        words = drop_top_chrome(words)
         # Un bloc admis sur sa seule hauteur peut être un panneau de
         # l'interface : sans réponses appariées, rien ne l'a encore écarté.
         if replies is None and not reads_like_dialogue(words):
@@ -501,6 +521,62 @@ def drop_replies(words):
         if current[0] - previous[-1] >= MIN_REPLY_LINE_GAP:
             return [word for word in words if word["top"] <= previous[-1]]
     return words
+
+
+def _mediane(valeurs):
+    """Médiane d'une liste non vide, sans dépendance externe."""
+    triees = sorted(valeurs)
+    milieu = len(triees) // 2
+    if len(triees) % 2:
+        return triees[milieu]
+    return (triees[milieu - 1] + triees[milieu]) / 2
+
+
+def drop_top_chrome(words):
+    """Retire le bandeau d'icônes en haut de bulle (⋮, ✕), par géométrie.
+
+    Ces contrôles sortent à l'OCR en mots isolés (« ë », « - ») posés
+    AU-DESSUS de la première ligne de texte, avec une confiance qui les fait
+    passer « keep_word » — les filtrer au mot est donc impossible. Mais ils
+    sont séparés du texte par un écart bien plus large qu'un interligne :
+    48 px mesurés chez Bworknroll, contre 25 entre deux lignes.
+
+    On repère cet écart comme le plus grand des débuts de ligne, rapporté à la
+    médiane des AUTRES écarts (l'inclure fausserait la référence par le bruit
+    qu'on isole), et l'on retire tout ce qui le précède. Deux gardes évitent
+    d'amputer un vrai dialogue : il faut assez de lignes pour que la médiane ait
+    un sens, et la bande de tête doit rester minoritaire — un « haut » qui porte
+    l'essentiel du texte est un saut de paragraphe, pas un bandeau.
+
+    Inconditionnel, APRÈS « drop_replies » : la bulle qui a révélé le bug est
+    appariée à ses réponses (« drop_replies » n'a donc jamais tourné dessus), et
+    le bandeau coiffe le dialogue quel que soit ce qui le suit.
+    """
+    if not words:
+        return words
+    tops = sorted({word["top"] for word in words})
+    lines = [[tops[0]]]
+    for top in tops[1:]:
+        if top - lines[-1][-1] <= LINE_TOLERANCE:
+            lines[-1].append(top)
+        else:
+            lines.append([top])
+    if len(lines) < MIN_LINES_FOR_CHROME:
+        return words
+    starts = [line[0] for line in lines]
+    gaps = [second - first for first, second in zip(starts, starts[1:])]
+    candidat = max(gaps)
+    index = gaps.index(candidat)
+    autres = gaps[:index] + gaps[index + 1 :]
+    if candidat < TOP_CHROME_GAP_RATIO * _mediane(autres):
+        return words
+    # La coupe est juste sous le plus grand écart : tout ce qui commence avant
+    # la ligne qui le suit est le bandeau.
+    seuil = starts[index + 1]
+    tete = [word for word in words if word["top"] < seuil]
+    if len(tete) > MAX_TOP_CHROME_RATIO * len(words):
+        return words  # tête majoritaire : c'est du vrai texte
+    return [word for word in words if word["top"] >= seuil]
 
 
 def is_reply_block(dialog, candidate):
