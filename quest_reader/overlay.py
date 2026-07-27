@@ -21,6 +21,19 @@ ECHELLE_MIN = 0.8
 ECHELLE_MAX = 2.5
 SENSIBILITE = 0.002
 
+# Largeur (px, à l'échelle 1) des boutons de contrôle. Un QPushButton d'un seul
+# glyphe prend ~80 px par défaut (plancher de padding du style Qt) alors que le
+# glyphe fait ~11 px : les 80 px sont surtout du vide. On resserre à cette
+# largeur compacte — assez pour entourer le glyphe et rester cliquable — puis on
+# la fait suivre l'échelle (× _echelle) comme le reste de la barre.
+LARGEUR_BOUTON = 44
+
+# Hauteur (px, à l'échelle 1) des boutons de contrôle. Le « sizeHint » d'un
+# QPushButton fait ~29 px de haut : combiné aux marges du layout, la barre
+# passait 47 px. On bride la hauteur pour viser une barre ~43 px sans changer la
+# forme ni la largeur des boutons. Suit l'échelle (× _echelle) comme la largeur.
+HAUTEUR_BOUTON = 26
+
 
 def _borner_echelle(valeur):
     """Ramène l'échelle dans [ECHELLE_MIN, ECHELLE_MAX], arrondie à deux
@@ -194,6 +207,12 @@ class Overlay:
         )
 
         disposition = QHBoxLayout(self.widget)
+        # Marges verticales resserrées (défaut Qt = 11 px en haut ET en bas) : la
+        # barre faisait ~61 px pour des boutons de ~29 px, soit 22 px de bande
+        # vide. On garde 11 px sur les côtés (l'air horizontal ne gêne pas) et on
+        # réduit haut/bas à 2 px : combiné au bridage de la hauteur des boutons
+        # (HAUTEUR_BOUTON), la barre vise ~43 px sans changer la forme des boutons.
+        disposition.setContentsMargins(11, 2, 11, 2)
 
         # Poignée de déplacement : sans elle, les boutons couvrent toute la
         # fenêtre et il n'y a aucune zone à saisir. Le glisser est porté par la
@@ -309,7 +328,10 @@ class Overlay:
             self.bouton_plus,
             self.bouton_source,
         ]
-        self._largeurs_base = [b.sizeHint().width() for b in self._boutons_echelle]
+        # Largeur de base COMPACTE, pas le « sizeHint » (80 px, surtout du vide).
+        # On force LARGEUR_BOUTON pour resserrer la barre autour des glyphes ;
+        # « _appliquer_echelle » la multiplie ensuite par l'échelle courante.
+        self._largeurs_base = [LARGEUR_BOUTON for _ in self._boutons_echelle]
         self._appliquer_echelle()  # pose la largeur fixe du label à l'échelle 1
 
         self._rafraichir()
@@ -343,7 +365,23 @@ class Overlay:
         largeur_label = QFontMetrics(police).horizontalAdvance("9.9×")
         self.label_vitesse.setFixedWidth(largeur_label)
         for bouton, base in zip(self._boutons_echelle, self._largeurs_base):
-            bouton.setMinimumWidth(round(base * self._echelle))
+            # On borne min ET max à la largeur compacte : le « sizeHint » (~80 px)
+            # tire sinon la largeur réelle vers le plancher du style, malgré le
+            # minimumWidth plus petit. La HAUTEUR reste libre → « minimumSize() !=
+            # maximumSize() » tient toujours (ce n'est PAS le setFixedSize carré
+            # qui gonflait la fenêtre : ici seule la largeur est figée, à une
+            # valeur volontairement petite).
+            largeur = round(base * self._echelle)
+            bouton.setMinimumWidth(largeur)
+            bouton.setMaximumWidth(largeur)
+            # Hauteur bridée aussi (à HAUTEUR_BOUTON × échelle) pour affiner la
+            # barre. On fige donc les DEUX dimensions, mais à des valeurs
+            # RECTANGULAIRES choisies (44×26) — ce n'est pas le « setFixedSize
+            # carré » du bug historique, qui prenait la largeur (~80) comme
+            # hauteur et gonflait la fenêtre. Ici la fenêtre rétrécit.
+            hauteur = round(HAUTEUR_BOUTON * self._echelle)
+            bouton.setMinimumHeight(hauteur)
+            bouton.setMaximumHeight(hauteur)
 
         self.widget.adjustSize()
 
