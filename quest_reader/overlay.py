@@ -169,6 +169,7 @@ class Overlay:
             QHBoxLayout,
             QLabel,
             QPushButton,
+            QVBoxLayout,
             QWidget,
         )
 
@@ -190,7 +191,24 @@ class Overlay:
         self.widget.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
-        disposition = QHBoxLayout(self.widget)
+
+        # Deux étages verticaux, façon fenêtre classique : un mince bandeau en
+        # haut ne portant QUE la croix ✕ (poussée à droite), puis la rangée de
+        # contrôles en dessous. Le ✕ sort ainsi de la rangée — il ne suit plus
+        # l'échelle du resize (voir « _boutons_echelle ») et n'est plus voisin
+        # de la poignée de déplacement ⠿, dont un glisser trop à gauche pouvait
+        # frôler la fermeture. Marges et espacement à zéro pour que la fenêtre
+        # reste compacte (un QVBoxLayout par défaut ajouterait du vide).
+        pile = QVBoxLayout(self.widget)
+        pile.setContentsMargins(0, 0, 0, 0)
+        pile.setSpacing(0)
+
+        bandeau_fermeture = QHBoxLayout()
+        bandeau_fermeture.setContentsMargins(0, 0, 0, 0)
+        bandeau_fermeture.addStretch()
+
+        controles = QWidget()
+        disposition = QHBoxLayout(controles)
 
         # Poignée de déplacement : sans elle, les boutons couvrent toute la
         # fenêtre et il n'y a aucune zone à saisir. Le glisser est porté par la
@@ -243,8 +261,9 @@ class Overlay:
         # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⧉✕),
         # l'uniformisation n'a plus lieu d'être.
 
-        # Ordre visuel : commandes, puis − [label] +, puis source, fermer, et
-        # la poignée de taille au coin extrême (là où l'on saisit pour agrandir).
+        # Ordre visuel de la rangée : commandes, puis − [label] +, puis source,
+        # et la poignée de taille au coin extrême (là où l'on saisit pour
+        # agrandir). Le ✕ n'est PLUS ici : il vit dans le bandeau du dessus.
         disposition.addWidget(self.bouton_pause)
         disposition.addWidget(self.bouton_stop)
         disposition.addWidget(self.bouton_reprise)
@@ -252,9 +271,13 @@ class Overlay:
         disposition.addWidget(self.label_vitesse)
         disposition.addWidget(self.bouton_plus)
         disposition.addWidget(self.bouton_source)
-        disposition.addWidget(self.bouton_fermer)
         self.poignee_taille = _poignee_taille(self)
         disposition.addWidget(self.poignee_taille)
+
+        # Le ✕ seul dans le bandeau haut, à droite ; puis la rangée en dessous.
+        bandeau_fermeture.addWidget(self.bouton_fermer)
+        pile.addLayout(bandeau_fermeture)
+        pile.addWidget(controles)
 
         # État de l'échelle de taille. On agrandit la barre par ÉCHELLE DE
         # POLICE, pas par géométrie : le QHBoxLayout épingle « minimumSize » à
@@ -267,6 +290,8 @@ class Overlay:
         # « setFixedSize » (qui avait gonflé la fenêtre en carré).
         self._echelle = 1.0
         self._police_base = self.widget.font()
+        # Le ✕ n'y figure PAS : posé dans le bandeau haut façon bouton-fenêtre,
+        # il garde une taille fixe et ne suit pas l'échelle de la barre.
         self._boutons_echelle = [
             self.bouton_pause,
             self.bouton_stop,
@@ -274,7 +299,6 @@ class Overlay:
             self.bouton_moins,
             self.bouton_plus,
             self.bouton_source,
-            self.bouton_fermer,
         ]
         self._largeurs_base = [b.sizeHint().width() for b in self._boutons_echelle]
         self._appliquer_echelle()  # pose la largeur fixe du label à l'échelle 1

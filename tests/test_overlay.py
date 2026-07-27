@@ -353,3 +353,37 @@ def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
     ]
     for bouton in boutons:
         assert bouton.minimumSize() != bouton.maximumSize()
+
+
+def test_la_croix_de_fermeture_est_hors_de_la_rangee_de_controles(app):
+    """Le ✕ est sorti dans son propre bandeau, coin haut-droit.
+
+    Comme le bouton fermer d'une fenêtre classique, il n'appartient plus à la
+    rangée de contrôles (⏸ ⏹ ⏵ − + ⧉) : il ne suit donc PAS l'échelle de
+    police du resize (voir « _boutons_echelle »). On vérifie l'appartenance,
+    pas la géométrie, qui dépend du compositeur en offscreen.
+    """
+    overlay = _overlay(PlayerState())
+    assert overlay.bouton_fermer not in overlay._boutons_echelle
+
+
+def test_la_croix_ne_grandit_pas_au_resize(app):
+    """Le ✕ garde sa taille quand on agrandit la barre à fond.
+
+    Choix assumé (façon bouton-fenêtre) : seuls les contrôles de lecture
+    grossissent avec la poignée ◢. Le ✕, hors « _boutons_echelle », n'est
+    jamais élargi par « setMinimumWidth(base × échelle) » : sa largeur
+    minimale reste celle de départ.
+    """
+    from PySide6.QtCore import QPoint
+
+    from quest_reader.overlay import ECHELLE_MAX
+
+    overlay = _overlay(PlayerState())
+    largeur_depart = overlay.bouton_fermer.minimumWidth()
+
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(9000, 9000)))
+
+    assert overlay._echelle == ECHELLE_MAX  # la barre a bien grandi à fond
+    assert overlay.bouton_fermer.minimumWidth() == largeur_depart
