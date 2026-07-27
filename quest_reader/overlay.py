@@ -245,8 +245,25 @@ class Overlay:
         self.bouton_source = QPushButton("⧉")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
         # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
+        # Petit carré fixe, façon ✕ de barre de titre — sinon le sizeHint d'un
+        # QPushButton le rend large (~80 px) et le bandeau haut trop épais. Le
+        # « setFixedSize » n'est PAS le bug historique (qui figeait TOUTE la
+        # rangée de contrôles) : ce bouton est hors rangée et hors échelle, on
+        # VEUT qu'il reste petit et constant.
         self.bouton_fermer = QPushButton("✕")
         self.bouton_fermer.setToolTip("Fermer")
+        self.bouton_fermer.setFixedSize(18, 18)
+        # Glyphe plat, sans fond ni bordure — façon ✕ de barre de titre. Un
+        # QPushButton par défaut reste une boîte en relief qui « pèse » à l'œil,
+        # même à 18 px ; on le veut aussi discret que le ✕ de la fenêtre du jeu.
+        # Léger fond au survol pour signaler qu'il est cliquable.
+        self.bouton_fermer.setFlat(True)
+        self.bouton_fermer.setStyleSheet(
+            "QPushButton { background: transparent; border: none;"
+            " color: #b0b0b0; }"
+            "QPushButton:hover { background: rgba(255,255,255,0.15);"
+            " border-radius: 3px; color: #ffffff; }"
+        )
         self.bouton_pause.clicked.connect(self.on_pause)
         self.bouton_stop.clicked.connect(self.on_stop)
         self.bouton_reprise.clicked.connect(self.on_reprise)
