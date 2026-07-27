@@ -54,14 +54,15 @@ def _poignee_taille(overlay):
             super().__init__("◢")
             self.setToolTip("Glisser pour redimensionner la barre")
             self.setCursor(Qt.SizeFDiagCursor)
-            # Sans ça, le QHBoxLayout centre le triangle verticalement : on
-            # l'ancre en bas, là où se trouve le « coin » qu'on saisit.
-            self.setAlignment(Qt.AlignBottom | Qt.AlignRight)
-            # Le glyphe seul ne fait que ~12 px de large et jouxte « ✕ » : rater
-            # la poignée de quelques pixels vers la gauche fermerait l'appli en
-            # pleine lecture. On élargit la zone de préhension. La largeur suit
-            # la police (héritée), donc c'est surtout à petite échelle qu'elle
-            # protège ; on ne fige pas la hauteur (le layout gère le vertical).
+            # On ancre le triangle en bas (là où se trouve le « coin » qu'on
+            # saisit) et CENTRÉ horizontalement : dans la colonne du coin, le ✕
+            # est juste au-dessus ; un « AlignRight » décalerait le glyphe de la
+            # poignée hors de l'axe du ✕ (chacun centré sur une verticale
+            # différente). Centrer les deux les aligne parfaitement.
+            self.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
+            # Le glyphe seul ne fait que ~12 px de large : on élargit la zone de
+            # préhension pour ne pas rater la poignée. La largeur suit la police
+            # (héritée) ; on ne fige pas la hauteur (le layout gère le vertical).
             self.setMinimumWidth(24)
             self._ancre = None  # (curseur, échelle) au clic, ou None au repos
 
@@ -169,6 +170,7 @@ class Overlay:
             QHBoxLayout,
             QLabel,
             QPushButton,
+            QVBoxLayout,
             QWidget,
         )
 
@@ -190,6 +192,7 @@ class Overlay:
         self.widget.setWindowFlags(
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
+
         disposition = QHBoxLayout(self.widget)
 
         # Poignée de déplacement : sans elle, les boutons couvrent toute la
@@ -227,8 +230,26 @@ class Overlay:
         self.bouton_source = QPushButton("⧉")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
         # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
+        # Petit carré fixe, façon ✕ de barre de titre — sinon le sizeHint d'un
+        # QPushButton le rend large (~80 px) et le bandeau haut trop épais. Le
+        # « setFixedSize » n'est PAS le bug historique (qui figeait TOUTE la
+        # rangée de contrôles) : ce bouton est hors rangée et hors échelle, on
+        # VEUT qu'il reste petit et constant.
         self.bouton_fermer = QPushButton("✕")
         self.bouton_fermer.setToolTip("Fermer")
+        self.bouton_fermer.setFixedSize(24, 22)
+        # Glyphe plat, sans fond ni bordure — façon ✕ de barre de titre. Un
+        # QPushButton par défaut reste une boîte en relief qui « pèse » à l'œil ;
+        # à plat, 22 px retrouvent la taille du ✕ des fenêtres voisines (Konsole)
+        # sans le poids visuel de la boîte. Léger fond au survol pour signaler
+        # qu'il est cliquable.
+        self.bouton_fermer.setFlat(True)
+        self.bouton_fermer.setStyleSheet(
+            "QPushButton { background: transparent; border: none;"
+            " color: #b0b0b0; }"
+            "QPushButton:hover { background: rgba(255,255,255,0.15);"
+            " border-radius: 3px; color: #ffffff; }"
+        )
         self.bouton_pause.clicked.connect(self.on_pause)
         self.bouton_stop.clicked.connect(self.on_stop)
         self.bouton_reprise.clicked.connect(self.on_reprise)
@@ -243,8 +264,7 @@ class Overlay:
         # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⧉✕),
         # l'uniformisation n'a plus lieu d'être.
 
-        # Ordre visuel : commandes, puis − [label] +, puis source, fermer, et
-        # la poignée de taille au coin extrême (là où l'on saisit pour agrandir).
+        # Ordre visuel de la rangée : commandes, puis − [label] +, puis source.
         disposition.addWidget(self.bouton_pause)
         disposition.addWidget(self.bouton_stop)
         disposition.addWidget(self.bouton_reprise)
@@ -252,9 +272,21 @@ class Overlay:
         disposition.addWidget(self.label_vitesse)
         disposition.addWidget(self.bouton_plus)
         disposition.addWidget(self.bouton_source)
-        disposition.addWidget(self.bouton_fermer)
+
+        # Coin droit : une petite colonne ✕ (haut) au-dessus de ◢ (bas), au
+        # bout de la MÊME rangée — pas d'étage séparé, qui créait une bande
+        # vide pleine largeur. Le ✕ occupe ainsi le vrai coin haut-droit, juste
+        # au-dessus de la poignée de resize. Marges/espacement à zéro, sinon on
+        # réintroduit la hauteur qu'on cherche justement à retirer.
         self.poignee_taille = _poignee_taille(self)
-        disposition.addWidget(self.poignee_taille)
+        coin = QVBoxLayout()
+        coin.setContentsMargins(0, 0, 0, 0)
+        coin.setSpacing(0)
+        coin.addWidget(self.bouton_fermer, alignment=Qt.AlignTop | Qt.AlignRight)
+        coin.addWidget(
+            self.poignee_taille, alignment=Qt.AlignBottom | Qt.AlignRight
+        )
+        disposition.addLayout(coin)
 
         # État de l'échelle de taille. On agrandit la barre par ÉCHELLE DE
         # POLICE, pas par géométrie : le QHBoxLayout épingle « minimumSize » à
@@ -267,6 +299,8 @@ class Overlay:
         # « setFixedSize » (qui avait gonflé la fenêtre en carré).
         self._echelle = 1.0
         self._police_base = self.widget.font()
+        # Le ✕ n'y figure PAS : posé dans le bandeau haut façon bouton-fenêtre,
+        # il garde une taille fixe et ne suit pas l'échelle de la barre.
         self._boutons_echelle = [
             self.bouton_pause,
             self.bouton_stop,
@@ -274,7 +308,6 @@ class Overlay:
             self.bouton_moins,
             self.bouton_plus,
             self.bouton_source,
-            self.bouton_fermer,
         ]
         self._largeurs_base = [b.sizeHint().width() for b in self._boutons_echelle]
         self._appliquer_echelle()  # pose la largeur fixe du label à l'échelle 1

@@ -163,6 +163,10 @@ def test_les_boutons_gardent_leur_taille_naturelle(app):
     emoji ➕/➖ étant abandonnés au profit de « + » et « − », l'uniformisation
     n'a plus lieu d'être — on laisse Qt dimensionner naturellement.
     """
+    # Le ✕ est EXCLU : posé dans son bandeau façon bouton-fenêtre, il est le
+    # seul à porter un « setFixedSize » (petit carré) — légitime hors de la
+    # rangée. Le bug historique figeait TOUTE la rangée ; c'est elle qu'on garde
+    # libre.
     overlay = _overlay(PlayerState())
     boutons = [
         overlay.bouton_pause,
@@ -171,11 +175,10 @@ def test_les_boutons_gardent_leur_taille_naturelle(app):
         overlay.bouton_moins,
         overlay.bouton_plus,
         overlay.bouton_source,
-        overlay.bouton_fermer,
     ]
     # Taille NON figée : min et max restent aux valeurs par défaut de Qt (min
     # sous le sizeHint, max quasi infini), preuve qu'aucun « setFixedSize »
-    # carré ne subsiste.
+    # carré ne subsiste sur la rangée.
     for bouton in boutons:
         assert bouton.minimumSize() != bouton.maximumSize()
 
@@ -342,6 +345,7 @@ def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
     overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
     overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(9000, 9000)))
 
+    # ✕ exclu : hors rangée, hors échelle, seul à porter un « setFixedSize ».
     boutons = [
         overlay.bouton_pause,
         overlay.bouton_stop,
@@ -349,7 +353,44 @@ def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
         overlay.bouton_moins,
         overlay.bouton_plus,
         overlay.bouton_source,
-        overlay.bouton_fermer,
     ]
     for bouton in boutons:
         assert bouton.minimumSize() != bouton.maximumSize()
+
+
+def test_la_croix_ne_suit_pas_l_echelle_de_police(app):
+    """Le ✕ est exclu de « _boutons_echelle » : il ne grandit pas au resize.
+
+    Il vit dans la colonne du coin haut-droit (au-dessus de la poignée ◢), sur
+    la même rangée, mais garde une taille fixe façon bouton-fenêtre. On vérifie
+    l'exclusion de la liste d'échelle, pas la géométrie, qui dépend du
+    compositeur en offscreen.
+    """
+    overlay = _overlay(PlayerState())
+    assert overlay.bouton_fermer not in overlay._boutons_echelle
+
+
+def test_la_croix_ne_grandit_pas_au_resize(app):
+    """Le ✕ garde sa taille quand on agrandit la barre à fond.
+
+    Choix assumé (façon bouton-fenêtre) : seuls les contrôles de lecture
+    grossissent avec la poignée ◢. Le ✕, hors « _boutons_echelle », n'est
+    jamais élargi par « setMinimumWidth(base × échelle) » : sa largeur
+    minimale reste celle de départ.
+    """
+    from PySide6.QtCore import QPoint
+
+    from quest_reader.overlay import ECHELLE_MAX
+
+    overlay = _overlay(PlayerState())
+    largeur_depart = overlay.bouton_fermer.minimumWidth()
+
+    overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
+    overlay.poignee_taille.mouseMoveEvent(_FauxEvenement(QPoint(9000, 9000)))
+
+    assert overlay._echelle == ECHELLE_MAX  # la barre a bien grandi à fond
+    assert overlay.bouton_fermer.minimumWidth() == largeur_depart
+    # Taille FIXE (petit carré) : min == max. C'est ce contrat, absent du
+    # « minimumWidth » ci-dessus (qui passerait sans setFixedSize), qui garantit
+    # que le ✕ ne s'étire jamais.
+    assert overlay.bouton_fermer.minimumSize() == overlay.bouton_fermer.maximumSize()
