@@ -192,23 +192,7 @@ class Overlay:
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         )
 
-        # Deux étages verticaux, façon fenêtre classique : un mince bandeau en
-        # haut ne portant QUE la croix ✕ (poussée à droite), puis la rangée de
-        # contrôles en dessous. Le ✕ sort ainsi de la rangée — il ne suit plus
-        # l'échelle du resize (voir « _boutons_echelle ») et n'est plus voisin
-        # de la poignée de déplacement ⠿, dont un glisser trop à gauche pouvait
-        # frôler la fermeture. Marges et espacement à zéro pour que la fenêtre
-        # reste compacte (un QVBoxLayout par défaut ajouterait du vide).
-        pile = QVBoxLayout(self.widget)
-        pile.setContentsMargins(0, 0, 0, 0)
-        pile.setSpacing(0)
-
-        bandeau_fermeture = QHBoxLayout()
-        bandeau_fermeture.setContentsMargins(0, 0, 0, 0)
-        bandeau_fermeture.addStretch()
-
-        controles = QWidget()
-        disposition = QHBoxLayout(controles)
+        disposition = QHBoxLayout(self.widget)
 
         # Poignée de déplacement : sans elle, les boutons couvrent toute la
         # fenêtre et il n'y a aucune zone à saisir. Le glisser est porté par la
@@ -252,11 +236,12 @@ class Overlay:
         # VEUT qu'il reste petit et constant.
         self.bouton_fermer = QPushButton("✕")
         self.bouton_fermer.setToolTip("Fermer")
-        self.bouton_fermer.setFixedSize(18, 18)
+        self.bouton_fermer.setFixedSize(22, 22)
         # Glyphe plat, sans fond ni bordure — façon ✕ de barre de titre. Un
-        # QPushButton par défaut reste une boîte en relief qui « pèse » à l'œil,
-        # même à 18 px ; on le veut aussi discret que le ✕ de la fenêtre du jeu.
-        # Léger fond au survol pour signaler qu'il est cliquable.
+        # QPushButton par défaut reste une boîte en relief qui « pèse » à l'œil ;
+        # à plat, 22 px retrouvent la taille du ✕ des fenêtres voisines (Konsole)
+        # sans le poids visuel de la boîte. Léger fond au survol pour signaler
+        # qu'il est cliquable.
         self.bouton_fermer.setFlat(True)
         self.bouton_fermer.setStyleSheet(
             "QPushButton { background: transparent; border: none;"
@@ -278,9 +263,7 @@ class Overlay:
         # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⧉✕),
         # l'uniformisation n'a plus lieu d'être.
 
-        # Ordre visuel de la rangée : commandes, puis − [label] +, puis source,
-        # et la poignée de taille au coin extrême (là où l'on saisit pour
-        # agrandir). Le ✕ n'est PLUS ici : il vit dans le bandeau du dessus.
+        # Ordre visuel de la rangée : commandes, puis − [label] +, puis source.
         disposition.addWidget(self.bouton_pause)
         disposition.addWidget(self.bouton_stop)
         disposition.addWidget(self.bouton_reprise)
@@ -288,13 +271,21 @@ class Overlay:
         disposition.addWidget(self.label_vitesse)
         disposition.addWidget(self.bouton_plus)
         disposition.addWidget(self.bouton_source)
-        self.poignee_taille = _poignee_taille(self)
-        disposition.addWidget(self.poignee_taille)
 
-        # Le ✕ seul dans le bandeau haut, à droite ; puis la rangée en dessous.
-        bandeau_fermeture.addWidget(self.bouton_fermer)
-        pile.addLayout(bandeau_fermeture)
-        pile.addWidget(controles)
+        # Coin droit : une petite colonne ✕ (haut) au-dessus de ◢ (bas), au
+        # bout de la MÊME rangée — pas d'étage séparé, qui créait une bande
+        # vide pleine largeur. Le ✕ occupe ainsi le vrai coin haut-droit, juste
+        # au-dessus de la poignée de resize. Marges/espacement à zéro, sinon on
+        # réintroduit la hauteur qu'on cherche justement à retirer.
+        self.poignee_taille = _poignee_taille(self)
+        coin = QVBoxLayout()
+        coin.setContentsMargins(0, 0, 0, 0)
+        coin.setSpacing(0)
+        coin.addWidget(self.bouton_fermer, alignment=Qt.AlignTop | Qt.AlignRight)
+        coin.addWidget(
+            self.poignee_taille, alignment=Qt.AlignBottom | Qt.AlignRight
+        )
+        disposition.addLayout(coin)
 
         # État de l'échelle de taille. On agrandit la barre par ÉCHELLE DE
         # POLICE, pas par géométrie : le QHBoxLayout épingle « minimumSize » à

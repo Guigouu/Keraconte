@@ -358,13 +358,13 @@ def test_les_boutons_gardent_taille_naturelle_meme_a_grande_echelle(app):
         assert bouton.minimumSize() != bouton.maximumSize()
 
 
-def test_la_croix_de_fermeture_est_hors_de_la_rangee_de_controles(app):
-    """Le ✕ est sorti dans son propre bandeau, coin haut-droit.
+def test_la_croix_ne_suit_pas_l_echelle_de_police(app):
+    """Le ✕ est exclu de « _boutons_echelle » : il ne grandit pas au resize.
 
-    Comme le bouton fermer d'une fenêtre classique, il n'appartient plus à la
-    rangée de contrôles (⏸ ⏹ ⏵ − + ⧉) : il ne suit donc PAS l'échelle de
-    police du resize (voir « _boutons_echelle »). On vérifie l'appartenance,
-    pas la géométrie, qui dépend du compositeur en offscreen.
+    Il vit dans la colonne du coin haut-droit (au-dessus de la poignée ◢), sur
+    la même rangée, mais garde une taille fixe façon bouton-fenêtre. On vérifie
+    l'exclusion de la liste d'échelle, pas la géométrie, qui dépend du
+    compositeur en offscreen.
     """
     overlay = _overlay(PlayerState())
     assert overlay.bouton_fermer not in overlay._boutons_echelle
