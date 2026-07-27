@@ -11,6 +11,82 @@ lourde qu'on ne charge qu'au lancement de l'interface.
 
 from quest_reader.state import Etat
 
+# Bornes de l'échelle de taille de la barre, comme la vitesse a MIN/MAX. À
+# 1.0 la barre est à sa taille naturelle ; on descend un peu (0.8) et on monte
+# jusqu'à 2.5 (au-delà, la barre mange l'écran). SENSIBILITE convertit les
+# pixels glissés (SOMME x+y du déplacement diagonal) en pas d'échelle : à
+# 0.002, ~250 px de diagonale (250 en x + 250 en y = 500 unités) font passer
+# de 1.0 à 2.0 — un geste franc sans que la poignée saute d'un bout à l'autre.
+ECHELLE_MIN = 0.8
+ECHELLE_MAX = 2.5
+SENSIBILITE = 0.002
+
+
+def _borner_echelle(valeur):
+    """Ramène l'échelle dans [ECHELLE_MIN, ECHELLE_MAX], arrondie à deux
+    décimales (même anti-dérive que « speed._borner »)."""
+    return round(max(ECHELLE_MIN, min(ECHELLE_MAX, valeur)), 2)
+
+
+def _poignee_taille(overlay):
+    """Fabrique une poignée qui redimensionne la barre, tardivement (Qt ici).
+
+    Miroir de « _poignee_deplacement », même piège : le glisser DOIT être porté
+    par la poignée elle-même (Qt route les « mouseMove » vers le widget du
+    « mousePress »). On mappe le glisser en ABSOLU — on ancre au press l'échelle
+    et la position du curseur, puis on recalcule l'échelle depuis l'écart total.
+    En incrémental avec écrêtage, dépasser une borne puis revenir « décrocherait »
+    la poignée du curseur ; en absolu elle re-mord tout de suite.
+
+    Le déplacement diagonal (x+y) donne le ressenti d'une poignée de coin : tirer
+    vers le bas-droite agrandit. Contrairement au déplacement, aucun recours au
+    compositeur n'est nécessaire : sous Wayland un client A le droit de se
+    redimensionner lui-même (seul « move » lui est interdit).
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel
+
+    class PoigneeTaille(QLabel):
+        def __init__(self):
+            # « ◢ » (U+25E2, triangle plein bas-droite) : glyphe géométrique et
+            # monochrome, présent dans la police — pas un emoji « délavé »
+            # comme ➕/➖/🖥 qu'on a dû écarter ailleurs.
+            super().__init__("◢")
+            self.setToolTip("Glisser pour redimensionner la barre")
+            self.setCursor(Qt.SizeFDiagCursor)
+            # Sans ça, le QHBoxLayout centre le triangle verticalement : on
+            # l'ancre en bas, là où se trouve le « coin » qu'on saisit.
+            self.setAlignment(Qt.AlignBottom | Qt.AlignRight)
+            # Le glyphe seul ne fait que ~12 px de large et jouxte « ✕ » : rater
+            # la poignée de quelques pixels vers la gauche fermerait l'appli en
+            # pleine lecture. On élargit la zone de préhension. La largeur suit
+            # la police (héritée), donc c'est surtout à petite échelle qu'elle
+            # protège ; on ne fige pas la hauteur (le layout gère le vertical).
+            self.setMinimumWidth(24)
+            self._ancre = None  # (curseur, échelle) au clic, ou None au repos
+
+        def mousePressEvent(self, evenement):
+            if evenement.button() is not Qt.LeftButton:
+                return
+            self._ancre = (
+                evenement.globalPosition().toPoint(),
+                overlay._echelle,
+            )
+
+        def mouseMoveEvent(self, evenement):
+            if self._ancre is None:
+                return
+            curseur_depart, echelle_depart = self._ancre
+            ecart = evenement.globalPosition().toPoint() - curseur_depart
+            overlay._changer_echelle(
+                echelle_depart + (ecart.x() + ecart.y()) * SENSIBILITE
+            )
+
+        def mouseReleaseEvent(self, evenement):
+            self._ancre = None
+
+    return PoigneeTaille()
+
 
 def _poignee_deplacement(fenetre):
     """Fabrique une poignée qui déplace la fenêtre, tardivement (Qt ici).
@@ -76,11 +152,19 @@ class Overlay:
     affiche donc « + » et le vrai signe moins « − » (U+2212), et l'on donne à
     toute la rangée une taille uniforme pour que les glyphes ne la fassent pas
     tressauter. Un label entre − et + montre la vitesse courante.
+
+    Une poignée « ◢ » au coin permet de REDIMENSIONNER la barre. On agrandit par
+    ÉCHELLE DE POLICE, pas par géométrie : le QHBoxLayout épingle « minimumSize »
+    à la somme des « sizeHint » des boutons, donc un resize géométrique ne peut
+    pas rétrécir et n'ajouterait que du vide. Grossir la police élargit peu les
+    boutons (le style Qt fige leur largeur à ~80 px), on force donc leur largeur
+    par « setMinimumWidth(base × échelle) » — jamais « setFixedSize ». La largeur
+    fixe du label de vitesse est recalculée à chaque échelle : figée à l'init,
+    elle tronquait « 9.9× » dès que la barre grandissait.
     """
 
     def __init__(self, state, couper, reselectionner, fermer, vitesse):
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QFontMetrics
         from PySide6.QtWidgets import (
             QHBoxLayout,
             QLabel,
@@ -130,11 +214,11 @@ class Overlay:
         # Label de vitesse, entre − et + : sans lui, on ne sait pas à quel
         # débit on est. Largeur fixe (le plus large affichage possible, « 9.9× »)
         # pour que la rangée ne tressaute pas quand le texte change de longueur.
+        # La largeur EST recalculée à chaque changement d'échelle (voir
+        # « _appliquer_echelle ») : figée une fois à l'init, elle tronquait
+        # « 9.9× » dès que la barre grandissait.
         self.label_vitesse = QLabel()
         self.label_vitesse.setAlignment(Qt.AlignCenter)
-        self.label_vitesse.setFixedWidth(
-            QFontMetrics(self.label_vitesse.font()).horizontalAdvance("9.9×")
-        )
         # « ⧉ » (deux fenêtres superposées, U+29C9) : « choisir/changer la
         # source ». On évite « ⟳ » (rotation), qui disait « recharger » et
         # prêtait à confusion, et les vrais emoji d'écran/appareil photo
@@ -159,7 +243,8 @@ class Overlay:
         # remplacés par « + » et « − » (qui s'alignent déjà avec ⏸⏹⏵⧉✕),
         # l'uniformisation n'a plus lieu d'être.
 
-        # Ordre visuel : commandes, puis − [label] +, puis source et fermer.
+        # Ordre visuel : commandes, puis − [label] +, puis source, fermer, et
+        # la poignée de taille au coin extrême (là où l'on saisit pour agrandir).
         disposition.addWidget(self.bouton_pause)
         disposition.addWidget(self.bouton_stop)
         disposition.addWidget(self.bouton_reprise)
@@ -168,8 +253,66 @@ class Overlay:
         disposition.addWidget(self.bouton_plus)
         disposition.addWidget(self.bouton_source)
         disposition.addWidget(self.bouton_fermer)
+        self.poignee_taille = _poignee_taille(self)
+        disposition.addWidget(self.poignee_taille)
+
+        # État de l'échelle de taille. On agrandit la barre par ÉCHELLE DE
+        # POLICE, pas par géométrie : le QHBoxLayout épingle « minimumSize » à
+        # la somme des « sizeHint », donc un resize géométrique ne peut pas
+        # rétrécir et n'ajouterait que du vide. On mémorise la police de départ
+        # (multiplier la police courante à chaque pas accumulerait la dérive) et
+        # la largeur naturelle de chaque bouton : le style Qt la fige à ~80 px
+        # quelle que soit la police, donc grossir la police ne les élargit pas —
+        # on force la largeur par « setMinimumWidth(base × échelle) ». JAMAIS
+        # « setFixedSize » (qui avait gonflé la fenêtre en carré).
+        self._echelle = 1.0
+        self._police_base = self.widget.font()
+        self._boutons_echelle = [
+            self.bouton_pause,
+            self.bouton_stop,
+            self.bouton_reprise,
+            self.bouton_moins,
+            self.bouton_plus,
+            self.bouton_source,
+            self.bouton_fermer,
+        ]
+        self._largeurs_base = [b.sizeHint().width() for b in self._boutons_echelle]
+        self._appliquer_echelle()  # pose la largeur fixe du label à l'échelle 1
 
         self._rafraichir()
+
+    def _changer_echelle(self, valeur):
+        """Fixe l'échelle (bornée) et réapplique. Appelée par la poignée."""
+        nouvelle = _borner_echelle(valeur)
+        if nouvelle != self._echelle:
+            self._echelle = nouvelle
+            self._appliquer_echelle()
+
+    def _appliquer_echelle(self):
+        """Met la barre à l'échelle courante : police, largeurs, label.
+
+        On construit la QFont d'échelle et l'on MESURE le label sur ce même
+        objet (pas via « label.font() » après coup, qui dépendrait du timing de
+        propagation de la police au widget). On force ensuite la largeur des
+        boutons — le style les fige sinon — et l'on rafraîchit la géométrie.
+        """
+        from PySide6.QtGui import QFont, QFontMetrics
+
+        police = QFont(self._police_base)
+        # pointSizeF renvoie -1 si la police a été définie en pixels (fontconfig
+        # le fait sur certains setups Linux) : on bascule alors sur pixelSize.
+        if self._police_base.pointSizeF() > 0:
+            police.setPointSizeF(self._police_base.pointSizeF() * self._echelle)
+        else:
+            police.setPixelSize(round(self._police_base.pixelSize() * self._echelle))
+        self.widget.setFont(police)
+
+        largeur_label = QFontMetrics(police).horizontalAdvance("9.9×")
+        self.label_vitesse.setFixedWidth(largeur_label)
+        for bouton, base in zip(self._boutons_echelle, self._largeurs_base):
+            bouton.setMinimumWidth(round(base * self._echelle))
+
+        self.widget.adjustSize()
 
     def on_plus(self):
         """Accélère la parole d'un pas (effet dès la phrase suivante)."""
