@@ -293,6 +293,9 @@ def test_kokoro_relit_la_vitesse_a_chaud():
     Kokoro lisait « self.speed » à chaque « speak » ; il lit désormais la
     vitesse partagée. On double « kokoro_onnx.Kokoro » et « play_wave ».
     """
+    # KokoroEngine.speak importe soundfile pour écrire le WAV ; c'est un extra
+    # optionnel ([kokoro]), absent du cœur installé en CI. On saute sans lui.
+    pytest.importorskip("soundfile")
     from quest_reader.engines.kokoro import KokoroEngine
 
     rendus = {}
@@ -320,6 +323,9 @@ def test_xtts_accepte_une_voix_du_modele():
     Cloner un échantillon reste possible, mais donne un rendu inférieur
     quand la référence est elle-même synthétique.
     """
+    # check_xtts exige torch (+ CUDA) : c'est l'extra [nvidia], hors du cœur
+    # installé en CI. Sans torch, on saute — ce chemin ne concerne que XTTS.
+    pytest.importorskip("torch")
     check_xtts(
         args_xtts(voice_sample="Damien Black", narration_sample="Sofia Hellen")
     )

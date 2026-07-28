@@ -65,3 +65,6 @@ include = ["quest_reader*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "ocr_fixture: compare le TEXTE reconnu par tesseract sur une vraie capture ; le résultat dépend du build exact de tesseract et de ses données fra, donc seulement reproductible sur la machine de calibration. Sauté en CI (tesseract des runners différent) via « -m 'not ocr_fixture' ». Ces tests protègent le réglage OCR contre les régressions, en local et en jeu.",
+]

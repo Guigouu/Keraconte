@@ -48,11 +48,13 @@ from tests.helpers import (  # noqa: E402
 )
 
 
+@pytest.mark.ocr_fixture
 @pytest.mark.parametrize("sample", SAMPLES, ids=IDS)
 def test_lit_le_dialogue(sample):
     assert clean(find_dialog(load(sample))) == sample["expected"]
 
 
+@pytest.mark.ocr_fixture
 def test_lit_le_dialogue_sans_le_bandeau_d_icones():
     """Bworknroll : le ⋮ et le ✕ du haut de bulle se collaient en « ë - » en
     tête de chaque réplique. Le texte lu ne doit plus les porter."""
@@ -250,6 +252,7 @@ def test_deux_lectures_bruitees_restent_un_seul_dialogue():
     )
 
 
+@pytest.mark.ocr_fixture
 @pytest.mark.parametrize(
     "sample", [CLIQUETIS, ENROLEMENT], ids=["cliquetis", "enrolement"]
 )
@@ -404,6 +407,7 @@ def test_distingue_un_dialogue_d_un_panneau(mots, attendu):
     assert reads_like_dialogue([{"text": mot} for mot in mots]) is attendu
 
 
+@pytest.mark.ocr_fixture
 def test_garde_l_exclamation_finale():
     """« Bienvenue ! » était amputé de sa dernière phrase.
 
@@ -420,6 +424,7 @@ def test_la_ponctuation_forte_survit_au_filtre(signe):
     assert keep_word(signe, 90) is True
 
 
+@pytest.mark.ocr_fixture
 def test_lit_un_dialogue_fondu_a_ses_reponses():
     """Bulle et réponses soudées en un contour : le dialogue doit rester lu.
 
@@ -432,6 +437,7 @@ def test_lit_un_dialogue_fondu_a_ses_reponses():
     assert clean(find_dialog(load(ROUKEROL))) == ROUKEROL["expected"]
 
 
+@pytest.mark.ocr_fixture
 def test_lit_un_dialogue_court_apparie_a_ses_reponses():
     """Une réplique courte, appariée à ses réponses, doit rester lue.
 
