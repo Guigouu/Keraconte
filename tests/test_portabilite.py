@@ -7,8 +7,10 @@ du bug NamedTemporaryFile.
 """
 
 import importlib
+import os
 import pathlib
 import sys
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -56,3 +58,39 @@ def test_reader_module_ne_reference_ni_gi_ni_dbus():
             f"reader.py référence « {interdit} » : le plumbing Linux doit "
             "vivre dans capture_linux, pas dans l'orchestration agnostique."
         )
+
+
+def test_qr_tesseract_prime_sur_le_path():
+    """« QR_TESSERACT » impose le binaire tesseract, avant le PATH.
+
+    Sous Windows l'installeur ne touche pas au PATH : cette variable est
+    l'échappatoire pour désigner le binaire. On vérifie qu'elle prend le pas.
+    """
+    import quest_reader.detection as detection
+
+    ancien = detection.pytesseract.pytesseract.tesseract_cmd
+    try:
+        with mock.patch.dict(os.environ, {"QR_TESSERACT": "/chemin/bidon/tesseract"}):
+            detection.configurer_tesseract()
+        assert (
+            detection.pytesseract.pytesseract.tesseract_cmd
+            == "/chemin/bidon/tesseract"
+        )
+    finally:
+        detection.pytesseract.pytesseract.tesseract_cmd = ancien
+
+
+def test_les_chemins_de_voix_sont_natifs_par_os():
+    """Les chemins de modèles passent par platformdirs, pas par un ~/.local codé.
+
+    Sous Linux, la racine reste ~/.local/share (dossiers piper-voices/ et
+    kokoro/ inchangés — pas de rupture) ; le point vérifié ici est qu'ils
+    dérivent bien de platformdirs.user_data_dir, donc natifs ailleurs.
+    """
+    import platformdirs
+
+    from quest_reader.engines import KOKORO_DIR, VOICES
+
+    racine = pathlib.Path(platformdirs.user_data_dir(appname=False))
+    assert VOICES == racine / "piper-voices"
+    assert KOKORO_DIR == racine / "kokoro"

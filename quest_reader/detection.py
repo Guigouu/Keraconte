@@ -3,7 +3,10 @@ dans l'image, en lit le texte, écarte le bruit d'icônes et les réponses du
 joueur.
 """
 
+import os
 import re
+import shutil
+import sys
 import time
 
 import cv2
@@ -13,6 +16,47 @@ from PIL import Image
 
 from quest_reader.text import clean
 from quest_reader.trace import trace as _trace
+
+
+def configurer_tesseract():
+    """Localise le binaire tesseract et ses données, de façon portable.
+
+    pytesseract lance le binaire « tesseract » du PATH. Sous Linux c'est le
+    cas après installation par la distribution ; sous Windows l'installeur
+    standard (UB-Mannheim) n'ajoute RIEN au PATH — l'appel échouerait avec un
+    « tesseract is not installed ». On résout donc, dans l'ordre :
+
+    1. « QR_TESSERACT » (variable d'environnement) : chemin explicite du
+       binaire, échappatoire universelle.
+    2. Un binaire embarqué à côté de l'exécutable figé (PyInstaller pose ses
+       ressources sous « sys._MEIPASS ») : c'est le cas du « fat exec ».
+    3. « shutil.which » : le binaire du PATH, chemin nominal sous Linux.
+    Sinon on ne touche à rien : pytesseract garde son défaut.
+
+    Les données de langue (« fra ») suivent la même logique via
+    « TESSDATA_PREFIX » : respecté s'il est déjà posé, sinon pointé vers les
+    données embarquées quand elles existent.
+    """
+    binaire = os.environ.get("QR_TESSERACT")
+    racine_figee = getattr(sys, "_MEIPASS", None)
+    if not binaire and racine_figee:
+        nom = "tesseract.exe" if sys.platform == "win32" else "tesseract"
+        candidat = os.path.join(racine_figee, nom)
+        if os.path.isfile(candidat):
+            binaire = candidat
+    if not binaire:
+        binaire = shutil.which("tesseract")
+    if binaire:
+        pytesseract.pytesseract.tesseract_cmd = binaire
+
+    # Données de langue embarquées, sans écraser un TESSDATA_PREFIX déjà posé.
+    if "TESSDATA_PREFIX" not in os.environ and racine_figee:
+        tessdata = os.path.join(racine_figee, "tessdata")
+        if os.path.isdir(tessdata):
+            os.environ["TESSDATA_PREFIX"] = tessdata
+
+
+configurer_tesseract()
 
 # Deux habillages de bulle coexistent selon le thème choisi dans le jeu.
 #

@@ -32,8 +32,8 @@ dependencies = [
 # un venv « --system-site-packages » reste le chemin recommandé sous Linux
 # (voir README). Listé ici pour la complétude et la CI.
 linux = [
-    "PyGObject>=3.50",
-    "dbus-python>=1.3",
+    "PyGObject>=3.50 ; platform_system == 'Linux'",
+    "dbus-python>=1.3 ; platform_system == 'Linux'",
 ]
 # Capture Windows/macOS : capture d'écran multiplateforme sans portail.
 mss = [

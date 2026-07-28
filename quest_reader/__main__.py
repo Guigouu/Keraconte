@@ -6,6 +6,7 @@ bulle de dialogue, l'OCRise et la lit avec une voix française.
 """
 
 import argparse
+import os
 import sys
 
 import cv2
@@ -17,7 +18,6 @@ from quest_reader.engines import (
     XTTS_VOICE,
     check_xtts,
 )
-from quest_reader.reader import Reader
 from quest_reader.text import clean
 
 
@@ -67,7 +67,21 @@ def main():
         help="secondes avant de relire un dialogue identique",
     )
     parser.add_argument("--test", metavar="IMAGE", help="tester l'OCR sur une image")
+    parser.add_argument(
+        "--tesseract",
+        metavar="CHEMIN",
+        help="chemin du binaire tesseract (sinon QR_TESSERACT, puis le PATH)",
+    )
     args = parser.parse_args()
+
+    # Override explicite du binaire OCR : posé dans l'environnement puis
+    # appliqué. detection.py résout tesseract à l'import (avant ce point) ;
+    # on rejoue donc la résolution pour que « --tesseract » prenne effet.
+    if args.tesseract:
+        os.environ["QR_TESSERACT"] = args.tesseract
+        from quest_reader.detection import configurer_tesseract
+
+        configurer_tesseract()
 
     if args.test:
         frame = cv2.imread(args.test)

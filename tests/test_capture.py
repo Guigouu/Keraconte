@@ -14,15 +14,14 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-# Ce module importe gi/dbus (portail ScreenCast) : il n'existe que sous Linux.
-# Ailleurs (Windows/macOS, venv sans python-gobject) on saute tout le fichier
-# plutôt que d'échouer à l'import — la re-sélection portail n'y a pas de sens.
-pytestmark = pytest.mark.skipif(
-    not sys.platform.startswith("linux"),
-    reason="capture_linux (portail/gi/dbus) n'existe que sous Linux",
-)
-
-from quest_reader.capture_linux import LinuxCapture  # noqa: E402
+# capture_linux importe gi/dbus (portail ScreenCast) DÈS son import : ailleurs
+# (Windows/macOS, venv sans python-gobject) l'import lèverait et pytest verrait
+# une ERREUR de collecte, pas un skip. « importorskip » attrape l'ImportError
+# à l'import et saute proprement TOUT le fichier — un pytestmark, lu après
+# l'import, arriverait trop tard. La re-sélection portail n'a de sens que sous
+# Linux, ce fichier n'y perd donc rien.
+capture_linux = pytest.importorskip("quest_reader.capture_linux")
+LinuxCapture = capture_linux.LinuxCapture
 
 
 class _FauxCast:
