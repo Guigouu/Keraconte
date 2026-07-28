@@ -10,9 +10,19 @@ import pathlib
 import sys
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader import Reader  # noqa: E402
+# Ce module importe gi/dbus (portail ScreenCast) : il n'existe que sous Linux.
+# Ailleurs (Windows/macOS, venv sans python-gobject) on saute tout le fichier
+# plutôt que d'échouer à l'import — la re-sélection portail n'y a pas de sens.
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="capture_linux (portail/gi/dbus) n'existe que sous Linux",
+)
+
+from quest_reader.capture_linux import LinuxCapture  # noqa: E402
 
 
 class _FauxCast:
@@ -37,13 +47,13 @@ def test_la_reselection_ferme_oublie_puis_redemarre():
     ne pas oublier le jeton ferait réutiliser l'ancien choix sans sélecteur.
     """
     _FauxCast.journal = []
-    reader = Reader.__new__(Reader)
+    reader = LinuxCapture.__new__(LinuxCapture)
     reader.cast = _FauxCast(on_node=None)  # l'ancienne session
     reader.pipeline = None
 
     ordre = []
-    with mock.patch("quest_reader.reader.ScreenCast", _FauxCast), mock.patch(
-        "quest_reader.reader.forget_token", side_effect=lambda: ordre.append("forget")
+    with mock.patch("quest_reader.capture_linux.ScreenCast", _FauxCast), mock.patch(
+        "quest_reader.capture_linux.forget_token", side_effect=lambda: ordre.append("forget")
     ):
         # « close » de l'ancienne va dans le journal partagé ; on veut le voir
         # AVANT l'oubli du jeton et AVANT le « start » de la nouvelle.
@@ -66,13 +76,13 @@ def test_la_reselection_ferme_oublie_puis_redemarre():
 
 def test_la_reselection_installe_une_nouvelle_session():
     """Après re-sélection, « reader.cast » est une nouvelle instance."""
-    reader = Reader.__new__(Reader)
+    reader = LinuxCapture.__new__(LinuxCapture)
     ancienne = _FauxCast(on_node=None)
     reader.cast = ancienne
     reader.pipeline = None
 
-    with mock.patch("quest_reader.reader.ScreenCast", _FauxCast), mock.patch(
-        "quest_reader.reader.forget_token"
+    with mock.patch("quest_reader.capture_linux.ScreenCast", _FauxCast), mock.patch(
+        "quest_reader.capture_linux.forget_token"
     ):
         reader._reselectionner()
 

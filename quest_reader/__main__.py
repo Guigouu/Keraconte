@@ -98,6 +98,7 @@ def lancer_avec_overlay(args):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
+    from quest_reader.capture_factory import make_capture
     from quest_reader.overlay import Overlay
     from quest_reader.playback import player_state
     from quest_reader.reader import Reader
@@ -105,21 +106,26 @@ def lancer_avec_overlay(args):
     app = QApplication(sys.argv)
 
     reader = Reader(args)
-    reader.demarrer_capture()
+    # La capture est un backend séparé (Linux : portail/GStreamer ; Windows/mac
+    # : mss) qui alimente « reader.handle » en images. Le Speaker est arrêté
+    # dans le « finally » de la boucle du backend (on_stop), là où le pipeline
+    # est aussi démonté — reader.py ne pilote plus rien de tout ça.
+    capture = make_capture(reader.handle, args, on_stop=reader.speaker.stop)
+    capture.demarrer_capture()
 
     # Le stop de l'overlay coupe la voix en cours ; ⧉ rouvre le sélecteur de
-    # source (posté sur le thread GLib par le Reader) ; ✕ quitte l'app —
-    # « app.quit » déclenche « aboutToQuit » et l'arrêt propre ci-dessous.
+    # source (posté sur le thread de capture) ; ✕ quitte l'app — « app.quit »
+    # déclenche « aboutToQuit » et l'arrêt propre ci-dessous.
     overlay = Overlay(
         player_state,
         couper=reader.speaker.silence,
-        reselectionner=reader.demander_reselection,
+        reselectionner=capture.demander_reselection,
         fermer=app.quit,
         vitesse=reader.vitesse,
     )
     overlay.show()
 
-    fil_capture = threading.Thread(target=reader.boucler, daemon=True)
+    fil_capture = threading.Thread(target=capture.boucler, daemon=True)
     fil_capture.start()
 
     # Ctrl+C : Qt ne rend pas la main aux handlers Python sans un réveil
@@ -133,7 +139,7 @@ def lancer_avec_overlay(args):
     # attend la fin du thread de capture (qui met le pipeline à NULL et stoppe
     # le Speaker dans son finally).
     def au_depart():
-        reader.arreter()
+        capture.arreter()
         fil_capture.join(timeout=5)
 
     app.aboutToQuit.connect(au_depart)
