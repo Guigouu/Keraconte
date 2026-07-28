@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quest-reader"
+version = "0.1.0"
+description = "Lit à voix haute les dialogues de PNJ de Dofus (OCR + synthèse vocale)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+# Dépendances communes à toutes les plateformes. La chaîne d'entrée (capture)
+# est spécifique à l'OS et vit dans les extras : sous Linux la capture passe
+# par le portail + PipeWire + GStreamer (extra « linux ») ; sous Windows/macOS
+# elle passera par « mss » (extra « mss »). Le cœur ci-dessous — OCR, synthèse
+# Piper, overlay Qt, audio — est plateforme-agnostique.
+dependencies = [
+    "numpy>=2.0",
+    "opencv-python-headless>=4.9",
+    "pytesseract>=0.3.13",
+    "piper-tts>=1.5",
+    "PySide6>=6.6",
+    "sounddevice>=0.5",
+    "platformdirs>=4.0",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Capture Linux : python-gobject (GStreamer) + dbus-python (portail ScreenCast).
+# Ces roues s'appuient sur les bibliothèques système de la distribution ;
+# un venv « --system-site-packages » reste le chemin recommandé sous Linux
+# (voir README). Listé ici pour la complétude et la CI.
+linux = [
+    "PyGObject>=3.50",
+    "dbus-python>=1.3",
+]
+# Capture Windows/macOS : capture d'écran multiplateforme sans portail.
+mss = [
+    "mss>=9.0",
+]
+# Moteur XTTS-v2 (optionnel, exige CUDA). Windows+NVIDIA ou Linux+NVIDIA
+# uniquement — pas embarqué dans l'exécutable par défaut.
+nvidia = [
+    "torch>=2.1",
+    "torchaudio>=2.1",
+    "coqui-tts>=0.27",
+]
+# Moteur Kokoro (optionnel, CPU).
+kokoro = [
+    "kokoro-onnx>=0.4",
+    "soundfile>=0.12",
+]
+# Empaquetage en exécutable autonome.
+build = [
+    "pyinstaller>=6.0",
+]
+# Outils de test.
+test = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["quest_reader*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,9 +1,7 @@
 """Moteur Kokoro : une seule voix française, sur le processeur."""
 
-import tempfile
-
 from quest_reader.engines import KOKORO_MODEL, KOKORO_VOICES, Engine
-from quest_reader.playback import play_wave
+from quest_reader.playback import play_wave, wav_temporaire
 from quest_reader.text import pronounce, speakable
 
 
@@ -41,6 +39,6 @@ class KokoroEngine(Engine):
         samples, rate = self.kokoro.create(
             spoken, voice=self.VOICE, lang="fr-fr", speed=speed
         )
-        with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
-            soundfile.write(handle.name, samples, rate)
-            play_wave(handle.name, generation)
+        with wav_temporaire() as path:
+            soundfile.write(path, samples, rate)
+            play_wave(path, generation)

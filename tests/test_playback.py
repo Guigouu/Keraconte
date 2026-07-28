@@ -5,6 +5,7 @@ On double le flux (« FauxSortie ») et la lecture du WAV : on vérifie le
 câblage — génération, pause, fermeture — sans vrai périphérique audio.
 """
 
+import os
 import pathlib
 import sys
 from unittest import mock
@@ -13,9 +14,42 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.playback import TRANCHE_MS, Playback  # noqa: E402
+from quest_reader.playback import TRANCHE_MS, Playback, wav_temporaire  # noqa: E402
 from quest_reader.state import Etat, PlayerState  # noqa: E402, F401
 from tests.helpers import FauxSortie  # noqa: E402
+
+
+def test_wav_temporaire_donne_un_chemin_reouvrable_par_nom():
+    """Le helper rend un CHEMIN écrivable/lisible par son nom, sans handle.
+
+    C'est le contrat dont les moteurs dépendent : écrire le WAV puis le
+    rejouer en le rouvrant par son nom. Le fichier existe pendant le bloc et
+    disparaît à la sortie. (La sécurité Windows elle-même — pas de
+    PermissionError sur réouverture — ne se vérifie qu'en CI Windows : sous
+    Linux l'ouverture concurrente est permise inconditionnellement.)
+    """
+    with wav_temporaire() as path:
+        assert os.path.exists(path)
+        # Réouvrable par nom, en écriture puis en lecture.
+        with open(path, "wb") as f:
+            f.write(b"RIFFtest")
+        with open(path, "rb") as f:
+            assert f.read() == b"RIFFtest"
+    # Nettoyé à la sortie du bloc.
+    assert not os.path.exists(path)
+
+
+def test_wav_temporaire_survit_a_un_fichier_deja_supprime():
+    """L'« unlink » de sortie ne doit pas lever si le fichier a disparu.
+
+    Sous Windows, un handle de lecture encore ouvert empêcherait la
+    suppression : le helper avale l'OSError. On simule ici la disparition du
+    fichier avant la sortie du bloc — la sortie doit rester silencieuse.
+    """
+    with wav_temporaire() as path:
+        os.unlink(path)  # disparu avant la fin du bloc
+    # Aucune exception propagée : le test passe s'il atteint cette ligne.
+    assert not os.path.exists(path)
 
 
 # Un faux WAV : dix tranches pleines. La taille d'une tranche se déduit de

@@ -8,10 +8,9 @@ niveau module casserait le reste du programme, qui tourne sans eux.
 import concurrent.futures
 import contextlib
 import os
-import tempfile
 
 from quest_reader.engines import Engine
-from quest_reader.playback import play_wave, playback
+from quest_reader.playback import play_wave, playback, wav_temporaire
 from quest_reader.text import pronounce, speakable, split_sentences
 
 
@@ -98,8 +97,7 @@ class XttsEngine(Engine):
         ]
         with contextlib.ExitStack() as stack:
             files = [
-                stack.enter_context(tempfile.NamedTemporaryFile(suffix=".wav"))
-                for _ in sentences
+                stack.enter_context(wav_temporaire()) for _ in sentences
             ]
             avance = None
             for position, sentence in enumerate(sentences):
@@ -108,15 +106,15 @@ class XttsEngine(Engine):
                 if generation != playback.generation:
                     break
                 if avance is None:
-                    self.render(sentence, sample, files[position].name)
+                    self.render(sentence, sample, files[position])
                 else:
                     avance.result()
                 suivante = position + 1
                 avance = (
                     self.pool.submit(
-                        self.render, sentences[suivante], sample, files[suivante].name
+                        self.render, sentences[suivante], sample, files[suivante]
                     )
                     if suivante < len(sentences)
                     else None
                 )
-                play_wave(files[position].name, generation)
+                play_wave(files[position], generation)

@@ -403,3 +403,69 @@ def test_xtts_absent_du_venv_dit_comment_l_installer(tmp_path):
         with pytest.raises(SystemExit) as sortie:
             check_xtts(args)
     assert "pip install" in str(sortie.value)
+
+
+def test_piper_ecrit_puis_rejoue_par_nom_un_fichier_existant():
+    """Le WAV synthétisé existe et est plein quand « play_wave » le reçoit.
+
+    Prouve que Piper route par « wav_temporaire » et que le cycle
+    écrire-puis-rejouer-par-nom tient. Ne prouve PAS la sécurité Windows
+    (réouverture par nom sans handle) : cela ne se vérifie qu'en CI Windows.
+    """
+    import os
+
+    vus = []
+    rendus = {}
+    faux_module = faux_piper(rendus)
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "quest_reader.engines.piper.play_wave",
+        side_effect=lambda path, gen: vus.append((path, os.path.getsize(path))),
+    ):
+        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, Vitesse(1.0), 0)
+        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+
+    assert len(vus) == 1
+    path, taille = vus[0]
+    assert path.endswith(".wav")
+    assert taille > 0  # le WAV a bien été écrit avant d'être joué
+
+
+def test_xtts_prefetch_utilise_des_fichiers_distincts():
+    """Deux phrases → deux chemins distincts, tous deux vivants en même temps.
+
+    XTTS synthétise la phrase N+1 pendant que N se joue (pool d'un fil) : les
+    fichiers doivent coexister. Un context manager mono-fichier composé dans
+    l'ExitStack ne doit pas les faire pointer sur le même chemin.
+    """
+    rendus = {}
+    modules, _pu = faux_xtts(rendus)
+    with mock.patch.dict(sys.modules, modules), mock.patch(
+        "quest_reader.engines.xtts.play_wave"
+    ):
+        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, Vitesse(1.0))
+        moteur.speak(
+            "Bonjour. Rebonjour.", narration=False, generation=playback.generation
+        )
+
+    chemins = [appel["file_path"] for appel in rendus["appels"]]
+    assert len(chemins) == 2
+    assert chemins[0] != chemins[1]  # fichiers distincts pour le prefetch
+
+
+def test_aucun_moteur_ne_rouvre_un_named_temporary_file():
+    """Garde structurelle : le pattern Windows-cassant ne doit pas revenir.
+
+    « NamedTemporaryFile » rouvert par son nom lève PermissionError sous
+    Windows. Aucun test Linux ne peut échouer sur la sémantique elle-même ;
+    ce grash-source est le seul garde-fou local contre une régression.
+    """
+    import quest_reader.engines.piper as piper_mod
+    import quest_reader.engines.kokoro as kokoro_mod
+    import quest_reader.engines.xtts as xtts_mod
+
+    for module in (piper_mod, kokoro_mod, xtts_mod):
+        source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
+        assert "NamedTemporaryFile" not in source, (
+            f"{module.__name__} réutilise NamedTemporaryFile : "
+            "réouverture par nom cassée sous Windows, passer par wav_temporaire."
+        )
