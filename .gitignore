@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 sample*.png
+# Sorties PyInstaller (bundle ~1 Go, jamais versionné).
+build/
+dist/
+*.spec.bak

@@ -68,6 +68,13 @@ def main():
     )
     parser.add_argument("--test", metavar="IMAGE", help="tester l'OCR sur une image")
     parser.add_argument(
+        "--dire",
+        metavar="TEXTE",
+        help="synthétiser une phrase de test et quitter (smoke test TTS du "
+        "bundle : exerce espeak-ng + le moteur ; un « *mot* » teste la voix "
+        "narrateur en plus de la voix PNJ)",
+    )
+    parser.add_argument(
         "--tesseract",
         metavar="CHEMIN",
         help="chemin du binaire tesseract (sinon QR_TESSERACT, puis le PATH)",
@@ -91,12 +98,44 @@ def main():
         print(clean(text) if text else "Aucun dialogue détecté.")
         return
 
+    if args.dire is not None:
+        _smoke_tts(args)
+        return
+
     # Avant de lancer la capture : une fois le fil parti, plus aucun
     # message d'erreur du moteur n'atteindrait l'utilisateur.
     if args.engine == "xtts":
         check_xtts(args)
 
     lancer_avec_overlay(args)
+
+
+def _smoke_tts(args):
+    """Smoke test de la synthèse dans le bundle figé : exerce espeak + le moteur.
+
+    Le chemin « --test » n'exerce QUE l'OCR ; la synthèse peut être cassée dans
+    l'exe sans que rien ne le montre (données espeak-ng absentes -> Piper
+    phonémise dans le vide, muet au 1er mot). Ce mode construit le moteur réel
+    et le fait synthétiser, par le MÊME chemin que la production. Un « *mot* »
+    dans le texte route en plus vers la voix narrateur (siwis) : on couvre donc
+    les DEUX voix par défaut, pas seulement le PNJ.
+
+    On neutralise la seule sortie carte son (pas de PortAudio en CI) : ce qu'on
+    veut prouver — espeak phonémise, le moteur génère le WAV — précède la
+    lecture. Une erreur de synthèse remonte (exit != 0) ; l'absence d'audio non.
+    """
+    from quest_reader import playback
+    from quest_reader.engines import build_engine
+    from quest_reader.speed import Vitesse
+
+    playback.playback.play = lambda *a, **k: None  # sortie audio neutralisée
+    moteur = build_engine(args, Vitesse(args.speed))
+    generation = playback.playback.generation
+    texte = args.dire or "Bonjour, *il hoche la tête*, ceci est un test."
+    moteur.speak(texte, narration=False, generation=generation)
+    # Forcer aussi la voix narrateur, indépendamment du contenu passé.
+    moteur.speak("il acquiesce", narration=True, generation=generation)
+    print("Synthèse OK (voix PNJ + narrateur).", flush=True)
 
 
 def lancer_avec_overlay(args):
