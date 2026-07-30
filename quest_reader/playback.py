@@ -8,6 +8,9 @@ l'état de pause. Dépend de « state » ; expose les instances uniques
 partagent.
 """
 
+import contextlib
+import os
+import tempfile
 import threading
 import wave
 
@@ -159,3 +162,31 @@ playback = Playback(player_state)
 
 def play_wave(path, generation):
     playback.play(path, generation)
+
+
+@contextlib.contextmanager
+def wav_temporaire(suffix=".wav"):
+    """Fournit le CHEMIN d'un fichier temporaire, sans handle ouvert.
+
+    Les moteurs écrivent le WAV puis le rejouent EN LE ROUVRANT PAR SON NOM
+    (« wave.open(path) », « play_wave(path) »). Un « NamedTemporaryFile »
+    laisse son handle ouvert pendant ce temps : sous Windows, rouvrir un
+    fichier par son nom alors qu'un handle est ouvert lève « PermissionError »
+    (WinError 32) — échec dur dès la première phrase. On crée donc le fichier
+    avec « mkstemp » puis on FERME aussitôt le descripteur : il ne reste que le
+    chemin, réouvrable par n'importe qui, sur toutes les plateformes.
+
+    Le fichier est supprimé à la sortie. L'« unlink » est protégé : sous
+    Windows, si « play_wave » garde encore un handle ouvert (lecture avortée
+    sur changement de génération), la suppression échouerait — on l'ignore
+    alors, le répertoire temporaire de l'OS finira par le nettoyer.
+    """
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    try:
+        yield path
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass

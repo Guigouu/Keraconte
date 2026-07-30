@@ -1,0 +1,177 @@
+name: build-release
+
+# Construit le fat exec quest-reader (onedir PyInstaller) pour Windows et Linux.
+# PyInstaller ne cross-compile pas : chaque OS construit SON propre exécutable.
+# Déclenché sur tag « v* » (attache alors les archives à une Release) ou à la
+# main via « workflow_dispatch » (pour éprouver le build sans poser de tag).
+#
+# macOS est hors ship (bloqueurs TCC/signature) : pas de job macOS ici.
+# L'exe Linux suppose gi/GStreamer/PipeWire système (prérequis, non embarqués) ;
+# l'exe Windows est autonome (backend mss, pur-Python).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # nécessaire pour attacher les archives à la Release
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    env:
+      # La spec lit ces variables pour localiser les ressources à embarquer.
+      QR_VOICES: ${{ github.workspace }}/voices
+      QR_TESSDATA: ${{ github.workspace }}/tessdata
+      # Les deux voix du comportement par défaut (PNJ + narrateur).
+      VOIX: "fr_FR-tom-medium fr_FR-siwis-medium"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # --- Voix Piper par défaut (tom + siwis, .onnx + .onnx.json) ------------
+      # Dépôt canonique rhasspy/piper-voices sur Hugging Face. La spec exige les
+      # 4 fichiers dans QR_VOICES : sans siwis le narrateur d'actions serait muet.
+      - name: Voix Piper (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$QR_VOICES"
+          base="https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR"
+          for v in $VOIX; do
+            dataset="${v#fr_FR-}"; dataset="${dataset%-medium}"
+            for ext in onnx onnx.json; do
+              curl -fsSL -o "$QR_VOICES/$v.$ext" \
+                "$base/$dataset/medium/$v.$ext?download=true"
+            done
+          done
+          ls -la "$QR_VOICES"
+
+      - name: Voix Piper (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:QR_VOICES | Out-Null
+          $base = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR"
+          foreach ($v in $env:VOIX.Split(" ")) {
+            $dataset = $v -replace "^fr_FR-","" -replace "-medium$",""
+            foreach ($ext in @("onnx","onnx.json")) {
+              Invoke-WebRequest -UseBasicParsing `
+                -Uri "$base/$dataset/medium/$v.$ext`?download=true" `
+                -OutFile "$env:QR_VOICES/$v.$ext"
+            }
+          }
+          Get-ChildItem $env:QR_VOICES
+
+      # --- tesseract + données « fra » (mêmes recettes que le workflow tests) --
+      - name: tesseract + fra (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra
+          mkdir -p "$QR_TESSDATA"
+          cp "$(dpkg -L tesseract-ocr-fra | grep fra.traineddata)" "$QR_TESSDATA/"
+          cp "$(find /usr/share -name eng.traineddata | head -1)" "$QR_TESSDATA/" || true
+
+      - name: tesseract + fra (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install --no-progress -y tesseract
+          # QR_TESSERACT DOIT pointer le vrai binaire (pas le shim choco) : la
+          # spec l'exige et copie les DLL depuis son dossier d'install.
+          $bin = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+          if (-not (Test-Path $bin)) { throw "tesseract.exe introuvable : $bin" }
+          "QR_TESSERACT=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          New-Item -ItemType Directory -Force -Path $env:QR_TESSDATA | Out-Null
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/fra.traineddata" `
+            -OutFile "$env:QR_TESSDATA/fra.traineddata"
+
+      # --- Build ---------------------------------------------------------------
+      - name: Installer le paquet + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[build]"
+
+      - name: PyInstaller
+        run: pyinstaller --clean --noconfirm packaging/quest-reader.spec
+
+      # --- Fumée : l'exe FIGÉ OCRise ET parle (les 2 voix) --------------------
+      # Le seul signal automatique que le bundle n'est pas silencieusement muet
+      # (espeak-ng-data absentes) ni OCR-mort (libs tesseract manquantes).
+      - name: Smoke OCR + TTS (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=./dist/quest-reader/quest-reader
+          # OCR : le texte doit sortir (tesseract + tessdata + libs du bundle).
+          ocr="$("$exe" --test tests/fixtures/dialogue_brakmar.png)"
+          echo "OCR: $ocr"
+          case "$ocr" in *forgemage*) ;; *) echo "OCR muet/faux"; exit 1;; esac
+          # TTS : la synthèse des 2 voix doit aboutir (espeak-ng-data du bundle).
+          tts="$("$exe" --dire "Bonjour, *il acquiesce*, test.")"
+          echo "TTS: $tts"
+          case "$tts" in *"Synthèse OK"*) ;; *) echo "TTS muet"; exit 1;; esac
+
+      - name: Smoke OCR + TTS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          # PowerShell ne fait PAS échouer une étape sur un exit code natif :
+          # on vérifie $LASTEXITCODE ET le contenu de sortie à chaque appel,
+          # sinon un exe OCR-muet ou sans voix passerait en vert.
+          $exe = ".\dist\quest-reader\quest-reader.exe"
+          $ocr = & $exe --test tests/fixtures/dialogue_brakmar.png
+          Write-Host "OCR: $ocr"
+          if ($LASTEXITCODE -ne 0) { throw "OCR exit $LASTEXITCODE" }
+          if ($ocr -notmatch "forgemage") { throw "OCR muet/faux : $ocr" }
+          $tts = & $exe --dire "Bonjour, *il acquiesce*, test."
+          Write-Host "TTS: $tts"
+          if ($LASTEXITCODE -ne 0) { throw "TTS exit $LASTEXITCODE" }
+          if ($tts -notmatch "Synth") { throw "TTS muet : $tts" }
+
+      # --- Archive + artefact --------------------------------------------------
+      - name: Archiver le bundle (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tar -C dist -czf quest-reader-linux-x64.tar.gz quest-reader
+
+      - name: Archiver le bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/quest-reader -DestinationPath quest-reader-windows-x64.zip
+
+      - name: Uploader l'artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quest-reader-${{ runner.os }}
+          path: |
+            quest-reader-*.tar.gz
+            quest-reader-*.zip
+          if-no-files-found: error
+
+      # Sur tag « v* » : attacher les archives à la Release GitHub.
+      - name: Attacher à la Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            quest-reader-*.tar.gz
+            quest-reader-*.zip

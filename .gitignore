@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 sample*.png
+# Sorties PyInstaller (bundle ~1 Go, jamais versionné).
+build/
+dist/
+*.spec.bak
+# Métadonnées générées par « pip install -e » (artefact, jamais versionné).
+*.egg-info/
