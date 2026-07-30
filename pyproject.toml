@@ -24,6 +24,10 @@ dependencies = [
     "sounddevice>=0.5",
     "platformdirs>=4.0",
     "Pillow>=10.0",
+    # Capture Windows/macOS. Minuscule paquet pur-Python : en cœur (et non en
+    # extra) pour que la CI Windows importe et construise réellement le backend
+    # mss, au lieu de le sauter. Inerte sous Linux (backend portail utilisé).
+    "mss>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -34,10 +38,6 @@ dependencies = [
 linux = [
     "PyGObject>=3.50 ; platform_system == 'Linux'",
     "dbus-python>=1.3 ; platform_system == 'Linux'",
-]
-# Capture Windows/macOS : capture d'écran multiplateforme sans portail.
-mss = [
-    "mss>=9.0",
 ]
 # Moteur XTTS-v2 (optionnel, exige CUDA). Windows+NVIDIA ou Linux+NVIDIA
 # uniquement — pas embarqué dans l'exécutable par défaut.

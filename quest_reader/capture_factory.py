@@ -22,9 +22,10 @@ def make_capture(on_frame, args, on_stop=None):
         from quest_reader.capture_linux import LinuxCapture
 
         return LinuxCapture(on_frame, args, on_stop)
-    # Windows / macOS : backend mss (à venir). L'erreur est explicite tant
-    # qu'il n'est pas écrit, plutôt qu'un ImportError obscur.
+    if sys.platform in ("win32", "darwin"):
+        from quest_reader.capture_mss import MssCapture
+
+        return MssCapture(on_frame, args, on_stop)
     raise NotImplementedError(
-        f"Aucun backend de capture pour la plateforme « {sys.platform} ». "
-        "Le backend mss (Windows/macOS) n'est pas encore implémenté."
+        f"Aucun backend de capture pour la plateforme « {sys.platform} »."
     )
