@@ -7,3 +7,5 @@ sample*.png
 build/
 dist/
 *.spec.bak
+# Métadonnées générées par « pip install -e » (artefact, jamais versionné).
+*.egg-info/
