@@ -338,10 +338,22 @@ def find_dialog_box(frame, boxes=None):
         if replies is None:
             paired = splits_into_pair(frame, (y, x, w, h))
             if not (h >= MERGED_MIN_HEIGHT or paired):
+                # Trace par box (silencieuse hors QR_DEBUG) : sur quelle porte le
+                # bloc est écarté. Sert à mesurer, sur un flux en jeu, la
+                # DISTRIBUTION des chemins d'une image à l'autre — un instantané
+                # ne montre pas la variance de la fusion morphologique.
+                _trace(
+                    f"  box (y={y} x={x} w={w} h={h}) PORTE=pas-de-preuve "
+                    f"splits={paired} h>=merged={h >= MERGED_MIN_HEIGHT}"
+                )
                 continue
         region = frame[y : y + h, x : x + w]
         white = (region > 200).all(2).mean()
         if not MIN_WHITE_RATIO <= white <= MAX_WHITE_RATIO:
+            _trace(
+                f"  box (y={y} x={x} w={w} h={h}) PORTE=white "
+                f"paired={paired} white={white:.4f}"
+            )
             continue
         # Pas de rognage : la boîte est parfois déjà serrée sur le texte,
         # et rogner amputerait le dialogue. Les icônes des coins sortent
@@ -383,12 +395,20 @@ def find_dialog_box(frame, boxes=None):
         # blocs admis sur leur SEULE hauteur, où rien n'a encore prouvé le
         # dialogue. Même raisonnement que le plancher apparié plus bas.
         if not paired and not reads_like_dialogue(words):
+            _trace(
+                f"  box (y={y} x={x} w={w} h={h}) PORTE=like "
+                f"mots={len(words)} paired={paired}"
+            )
             continue
         text = clean(" ".join(word["text"] for word in words))
         floor = MIN_CHARS_PAIRED if paired else MIN_CHARS
         if len(text) >= floor:
             _trace(f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
             return text, (y, x, w, h)
+        _trace(
+            f"  box (y={y} x={x} w={w} h={h}) PORTE=floor "
+            f"paired={paired} len={len(text)} floor={floor}"
+        )
     _trace(f"find_dialog_box: RIEN | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
     return None, None
 
