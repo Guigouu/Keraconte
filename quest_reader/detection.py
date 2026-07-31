@@ -225,6 +225,14 @@ def find_bubbles(frame):
         # L'interface de droite touche le bord ; le reste (chat compris)
         # est écarté par l'exigence d'un bloc de réponses apparié.
         if x + w > width * 0.99:
+            # Trace (silencieuse hors QR_DEBUG) : un blob assez grand écarté par
+            # le bord droit peut être une bulle SOUDÉE au décor jusqu'au bord —
+            # elle disparaît alors sans laisser de box, et le lecteur ne voit
+            # « rien » sans savoir pourquoi. Sert à mesurer ce cas en jeu.
+            _trace(
+                f"  contour ÉCARTÉ=bord-droit (y={y} x={x} w={w} h={h}) "
+                f"x+w={x + w} > {width * 0.99:.0f}"
+            )
             continue
         boxes.append((y, x, w, h))
 
