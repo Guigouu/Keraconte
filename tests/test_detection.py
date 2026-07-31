@@ -30,6 +30,7 @@ from tests.helpers import (  # noqa: E402
     BWORKNROLL,
     CLIQUETIS,
     ENROLEMENT,
+    EXPLORANCIENNE_100,
     FIXTURES,
     HERCULE,
     HERCULE_PERMUTE,
@@ -432,6 +433,23 @@ def test_lit_un_dialogue_fondu_a_ses_reponses():
     assert clean(find_dialog(load(ROUKEROL))) == ROUKEROL["expected"]
 
 
+@pytest.mark.ocr_fixture
+def test_lit_un_dialogue_narratif_peu_ponctue_re_segmente():
+    """Un dialogue peu ponctué, fondu à ses réponses, doit rester lu.
+
+    Relevé en jeu chez L'Explorancienne à l'échelle d'interface 100 %. Comme
+    chez Roukerol, la fermeture morphologique soude la bulle au bloc de
+    réponses : le bloc n'est admis que par « splits_into_pair », donc sur le
+    chemin non-apparié. Ce texte narratif est peu ponctué (ratio 0,07, sous
+    MIN_PUNCTUATION_RATIO) : « reads_like_dialogue » le rejetait, alors que la
+    re-segmentation avait retrouvé une paire — une preuve relationnelle, de même
+    nature qu'un appariement d'emblée. Le correctif ne soumet ce test qu'aux
+    blocs admis sur leur SEULE hauteur, où rien n'a prouvé le dialogue.
+    """
+    assert clean(find_dialog(load(EXPLORANCIENNE_100))) == EXPLORANCIENNE_100["expected"]
+
+
+@pytest.mark.ocr_fixture
 def test_lit_un_dialogue_court_apparie_a_ses_reponses():
     """Une réplique courte, appariée à ses réponses, doit rester lue.
 

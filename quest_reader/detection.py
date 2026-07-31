@@ -315,15 +315,29 @@ def find_dialog_box(frame, boxes=None):
         )
         # Quand les deux blocs se touchent, la fermeture les fond en un seul :
         # la paire manque alors. On la rattrape en re-segmentant finement le
-        # bloc, ce qui rend la bulle et les réponses comme deux contours et
-        # rétablit l'appariement. La hauteur reste un pré-filtre bon marché,
-        # mais roukerol (314 px) passe sous son seuil : la re-segmentation
-        # tranche le cas où la hauteur ne suffit pas.
+        # bloc (« splits_into_pair »), ce qui rend la bulle et les réponses
+        # comme deux contours et rétablit l'appariement. La hauteur reste un
+        # pré-filtre bon marché, mais roukerol (314 px) passe sous son seuil.
+        #
+        # Deux preuves distinctes admettent un bloc sans réponses appariées, et
+        # elles ne se valent PAS. Une paire re-segmentée est une preuve
+        # RELATIONNELLE, de même nature que « replies is not None » : le bloc est
+        # un dialogue soudé à ses réponses. La seule hauteur, elle, ne prouve
+        # rien — un panneau d'interface (hôtel des ventes, 838 px) est tout aussi
+        # haut. « paired » garde la trace de ce qui a admis le bloc et commande
+        # en aval le saut de « reads_like_dialogue » et le plancher bas.
+        #
+        # « splits_into_pair » DOIT donc tourner inconditionnellement ici, même
+        # quand la hauteur suffirait déjà : le court-circuiter derrière
+        # « h >= MERGED » (comme le faisait l'ancien
+        # « h >= MERGED or splits_into_pair(...) ») rendrait le correctif
+        # inopérant sur un bloc haut ET fusionné (L'Explorancienne à 100 %,
+        # h=435). Ne pas « optimiser » cet appel : son coût (bubble_mask sur la
+        # seule région) est négligeable face à l'OCR.
+        paired = replies is not None
         if replies is None:
-            merged = h >= MERGED_MIN_HEIGHT or splits_into_pair(
-                frame, (y, x, w, h)
-            )
-            if not merged:
+            paired = splits_into_pair(frame, (y, x, w, h))
+            if not (h >= MERGED_MIN_HEIGHT or paired):
                 continue
         region = frame[y : y + h, x : x + w]
         white = (region > 200).all(2).mean()
@@ -351,19 +365,27 @@ def find_dialog_box(frame, boxes=None):
         _ocr_ms += (time.perf_counter() - _t1) * 1000
         words = read_words(data)
         # Sur un bloc fusionné, l'OCR ramène aussi les réponses du joueur :
-        # elles se détachent par un large blanc, pas par leur grammaire.
+        # elles se détachent par un large blanc, pas par leur grammaire. On les
+        # retire dès qu'il n'y a pas d'appariement D'EMBLÉE (« replies is
+        # None ») : même quand « splits_into_pair » a retrouvé la paire, l'OCR a
+        # bien lu le bloc entier, réponses comprises.
         if replies is None:
             words = drop_replies(words)
         # Le bandeau d'icônes du haut de bulle (⋮, ✕) sort en « ë - » au-dessus
         # du texte : inconditionnel (la bulle appariée n'est pas passée par
         # « drop_replies »), avant tout calcul en aval qu'il polluerait.
         words = drop_top_chrome(words)
-        # Un bloc admis sur sa seule hauteur peut être un panneau de
-        # l'interface : sans réponses appariées, rien ne l'a encore écarté.
-        if replies is None and not reads_like_dialogue(words):
+        # « reads_like_dialogue » n'écarte les panneaux d'interface que faute de
+        # preuve relationnelle. Or un bloc dont « splits_into_pair » a retrouvé
+        # la paire EN A une : le lui imposer rejetait à tort les dialogues
+        # narratifs peu ponctués (« L'Explorancienne », 172 car., 2 points sur
+        # 28 mots → ratio 0,07 < 0,08). On ne garde donc ce test que pour les
+        # blocs admis sur leur SEULE hauteur, où rien n'a encore prouvé le
+        # dialogue. Même raisonnement que le plancher apparié plus bas.
+        if not paired and not reads_like_dialogue(words):
             continue
         text = clean(" ".join(word["text"] for word in words))
-        floor = MIN_CHARS if replies is None else MIN_CHARS_PAIRED
+        floor = MIN_CHARS_PAIRED if paired else MIN_CHARS
         if len(text) >= floor:
             _trace(f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
             return text, (y, x, w, h)

@@ -218,6 +218,24 @@ BWORKNROLL = {
 }
 
 
+# Relevé en jeu chez L'Explorancienne, à l'échelle d'interface 100 % / police
+# « Moyen ». À cette échelle, la fermeture morphologique soude la bulle à son
+# bloc de réponses : le bloc n'est plus apparié d'emblée, il n'est admis que
+# par « splits_into_pair ». Ce dialogue narratif est peu ponctué (2 points sur
+# 28 mots, ratio 0,07 < MIN_PUNCTUATION_RATIO) : « reads_like_dialogue » le
+# rejetait, alors que la re-segmentation avait bel et bien prouvé la paire.
+# Verrouille le correctif : une preuve relationnelle (paire re-segmentée) fait
+# sauter le test de ponctuation, au même titre qu'un appariement d'emblée. Le
+# « - » de tête est du chrome OCR non retiré (bandeau ⋮ mal lu), hors périmètre
+# de ce correctif — « expected » reprend ce que l'OCR rend vraiment.
+EXPLORANCIENNE_100 = {
+    "file": "echelle/explorancienne_100_moyen.png",
+    "expected": "- Le moment est venu pour les Douziens de partir à la "
+    "découverte des mondes qui les entourent. L'exploration nourrit la "
+    "connaissance qui mène à la compréhension du Krosmoz.",
+}
+
+
 def faux_xtts(rendus):
     """Remplace torch, transformers et TTS par des doublures.
 
