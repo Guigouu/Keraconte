@@ -555,14 +555,6 @@ def find_dialog_box(frame, boxes=None):
         )
         _ocr_ms += (time.perf_counter() - _t1) * 1000
         words = read_words(data)
-        # Le test « lit comme un dialogue » se fait sur les mots ENTIERS du bloc,
-        # avant que « drop_replies » n'en retire les réponses : celles-ci sont
-        # elles-mêmes des phrases ponctuées, et les garder rend le test plus
-        # sûr. Mesuré (ratio de ponctuation avant drop_replies) : les quatre
-        # vrais dialogues re-segmentés à 0,091-0,183, le panneau Recettes à
-        # 0,065 — le seuil 0,08 les sépare ; APRÈS drop_replies, L'Explorancienne
-        # tombe à 0,067 et le test la rejetterait à tort.
-        words_entiers = drop_top_chrome(words)
         # Sur un bloc fusionné, l'OCR ramène aussi les réponses du joueur :
         # elles se détachent par un large blanc, pas par leur grammaire. On les
         # retire dès qu'il n'y a pas d'appariement D'EMBLÉE (« replies is
@@ -574,26 +566,24 @@ def find_dialog_box(frame, boxes=None):
         # du texte : inconditionnel (la bulle appariée n'est pas passée par
         # « drop_replies »), avant tout calcul en aval qu'il polluerait.
         words = drop_top_chrome(words)
-        # « reads_like_dialogue » exige des phrases ponctuées plutôt qu'une liste
-        # d'étiquettes d'interface. On l'applique quand la preuve du dialogue est
-        # FAIBLE :
-        #  - aucune preuve relationnelle (« not paired ») — filet de secours ;
-        #  - preuve par RE-SEGMENTATION (« origine == split ») : la plus fragile
-        #    des trois, car les deux moitiés de la paire sont inventées en
-        #    re-découpant un seul blob. Un panneau « Recettes » (relevé en jeu,
-        #    « Extrait de Mangeoire Éleveur Niv. » ; sur fixture « Galet Solaire
-        #    150 ») s'y scinde en un faux couple bulle/réponse que la géométrie
-        #    seule (hauteur, écart, largeur) ne distingue pas d'un vrai dialogue.
-        # Les preuves FORTES (appariement d'emblée, réponse trouvée sous la bulle)
-        # en sont dispensées : leur imposer ce test rejetait à tort les dialogues
-        # narratifs peu ponctués. Le test porte sur « words_entiers » (avant
-        # drop_replies), voir plus haut.
-        if (not paired or _origine == "split") and not reads_like_dialogue(
-            words_entiers
-        ):
+        # « reads_like_dialogue » n'écarte les panneaux d'interface que faute de
+        # preuve relationnelle. On ne le soumet qu'aux blocs admis SANS preuve
+        # (« not paired ») — filet de secours. On avait tenté de l'étendre au
+        # chemin « split » pour écarter le panneau Recettes (dernier faux
+        # positif) : la CI l'a infirmé. Le test repose sur un ratio de
+        # ponctuation calibré (0,08) sur UNE version de Tesseract ; une autre
+        # build décale d'un mot le décompte et fait basculer la décision. Marge
+        # d'un seul mot de chaque côté (Recettes 3/46, L'Explorancienne 3/33) :
+        # sur l'OCR de la CI, Recettes repassait ET le risque sur les vrais
+        # dialogues re-segmentés n'était même pas mesuré (tests OCR désélectionnés
+        # faute de « fra »). Contrairement aux seuils GÉOMÉTRIQUES (hauteur, écart,
+        # aire), déterministes sur une image figée, un seuil issu du TEXTE OCR ne
+        # se transporte pas d'une build à l'autre. Le panneau Recettes reste donc
+        # un faux positif connu (une étiquette, « Galet Solaire 150 »), assumé.
+        if not paired and not reads_like_dialogue(words):
             _trace(
                 f"  box (y={y} x={x} w={w} h={h}) PORTE=like "
-                f"mots={len(words_entiers)} paired={paired} origine={_origine}"
+                f"mots={len(words)} paired={paired}"
             )
             continue
         text = clean(" ".join(word["text"] for word in words))
