@@ -3,10 +3,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 sample*.png
-
-# Artefacts de build Python (jamais versionnés).
+# Artefacts de build : sorties PyInstaller (bundle ~1 Go) et métadonnées
+# générées par « pip install -e ». Jamais versionnés.
 build/
 dist/
+*.spec.bak
 *.egg-info/
 
 # Registres de captures réelles pour scorer la détection (must-not-read).

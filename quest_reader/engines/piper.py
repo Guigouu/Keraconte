@@ -1,11 +1,10 @@
 """Moteur Piper : voix masculine rapide, découpée par phrases."""
 
-import tempfile
 import time
 import wave
 
 from quest_reader.engines import Engine
-from quest_reader.playback import play_wave, playback
+from quest_reader.playback import play_wave, playback, wav_temporaire
 from quest_reader.text import pronounce, speakable, split_sentences
 
 
@@ -54,7 +53,7 @@ class PiperEngine(Engine):
             # prend alors effet dès la phrase suivante. L'objet de config est
             # léger, le modèle .onnx reste chargé, rien n'est rechargé.
             config = self._SynthesisConfig(length_scale=1 / self.vitesse.valeur)
-            with tempfile.NamedTemporaryFile(suffix=".wav") as handle:
-                with wave.open(handle.name, "wb") as output:
+            with wav_temporaire() as path:
+                with wave.open(path, "wb") as output:
                     voice.synthesize_wav(sentence, output, syn_config=config)
-                play_wave(handle.name, generation)
+                play_wave(path, generation)

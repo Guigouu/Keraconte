@@ -11,8 +11,31 @@ import os
 import pathlib
 import sys
 
-VOICES = pathlib.Path(os.path.expanduser("~/.local/share/piper-voices"))
-KOKORO_DIR = pathlib.Path(os.path.expanduser("~/.local/share/kokoro"))
+import platformdirs
+
+
+def _racine_donnees():
+    """Racine où trouver les modèles de voix, bundle figé d'abord.
+
+    Dans l'exécutable « fat » (PyInstaller), les voix .onnx sont embarquées
+    sous « sys._MEIPASS » : on les cherche là EN PRIORITÉ, sinon la voix par
+    défaut se résoudrait vers un %LOCALAPPDATA%\\piper-voices inexistant et
+    « PiperVoice.load » échouerait à la première réplique (même piège que le
+    binaire tesseract). Hors bundle, on retombe sur la racine utilisateur
+    native via platformdirs SANS nom d'appli : sous Linux elle vaut
+    ~/.local/share (donc piper-voices/ et kokoro/ restent EXACTEMENT là où
+    l'ancien chemin en dur les plaçait — aucune rupture) ; sous Windows
+    %LOCALAPPDATA%, sous macOS ~/Library/Application Support.
+    """
+    racine_figee = getattr(sys, "_MEIPASS", None)
+    if racine_figee and os.path.isdir(os.path.join(racine_figee, "piper-voices")):
+        return pathlib.Path(racine_figee)
+    return pathlib.Path(platformdirs.user_data_dir(appname=False))
+
+
+_DATA = _racine_donnees()
+VOICES = _DATA / "piper-voices"
+KOKORO_DIR = _DATA / "kokoro"
 KOKORO_MODEL = KOKORO_DIR / "kokoro.onnx"
 KOKORO_VOICES = KOKORO_DIR / "voices.bin"
 
