@@ -257,3 +257,15 @@ sorte que les couleurs du jeu restent autour.
   transporte pas d'une installation à l'autre, donc il est laissé de côté.
 - **Nom du PNJ** : non lu (il est sur un parchemin doré, dont l'aspect varie
   selon le PNJ).
+
+## Licence
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md). Le code est ouvert : chacun peut le
+cloner, le forker, le modifier et proposer des contributions, pour tout usage
+**non commercial** — usage personnel, projets amateurs, recherche, éducation,
+associations. La seule chose interdite est d'en tirer un produit commercial ou
+de le vendre. Ce n'est donc pas « open source » au sens strict de l'OSI (qui
+exige d'autoriser aussi l'usage commercial), mais du *source-available*.
+
+Quest Reader est un outil non officiel, sans lien avec Ankama ; « Dofus » est
+une marque d'Ankama.

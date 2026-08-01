@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Lit à voix haute les dialogues de PNJ de Dofus (OCR + synthèse vocale)."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { text = "PolyForm-Noncommercial-1.0.0" }
 
 # Dépendances communes à toutes les plateformes. La chaîne d'entrée (capture)
 # est spécifique à l'OS et vit dans les extras : sous Linux la capture passe
