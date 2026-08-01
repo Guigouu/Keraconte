@@ -236,6 +236,32 @@ EXPLORANCIENNE_100 = {
 }
 
 
+# Le MÊME dialogue PNJ (« Gardien des Geôles d'Astrub »), capturé sous trois
+# thèmes de palettes distinctes (brakmar sombre, bonta clair, wabbit coloré)
+# en fenêtré 2710×1539. Ce dialogue n'a qu'UNE option de réponse : son bloc de
+# réponses ne fait que ~43800 px² (contre 54000-63000 pour un dialogue à
+# plusieurs réponses). Il restait au-dessus d'un plancher absolu de 40000, mais
+# un seuil d'aire alors rapporté à l'aire de l'image montait à 48000 px² avec la
+# taille de la fenêtre et l'écartait : plus d'appariement, dialogue inaperçu
+# dans TOUS les thèmes. Le seuil est désormais absolu (MIN_AREA), indépendant de
+# la fenêtre. Le texte lu est identique aux trois thèmes : la couleur du thème
+# n'influe pas sur l'OCR, seule la géométrie comptait. Le panneau de chat (coin
+# bas-gauche) est masqué en noir avant commit.
+THEME_GARDIEN = {
+    "files": [
+        "themes/brakmar.png",
+        "themes/bonta.png",
+        "themes/wabbit.png",
+    ],
+    "expected": "Lorsque vous saisissez la clé à molette, un léger frémissement "
+    "vous parcourt. Une étrange énergie émane du métal, comme si l’objet "
+    "cherchait à réagir à votre présence. En la laissant tomber "
+    "accidentellement, vous remarquez qu’elle rebondit d’une manière étrange, "
+    "produisant un tintement métallique presque mélodieux. Une vieille relique "
+    "ou un artefact magique oublié ?",
+}
+
+
 def faux_xtts(rendus):
     """Remplace torch, transformers et TTS par des doublures.
 

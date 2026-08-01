@@ -39,6 +39,7 @@ from tests.helpers import (  # noqa: E402
     ROUKEROL,
     SAMPLES,
     THEME_BLEU,
+    THEME_GARDIEN,
     TOKAGEKO,
     ecran,
     erase,
@@ -447,6 +448,25 @@ def test_lit_un_dialogue_narratif_peu_ponctue_re_segmente():
     blocs admis sur leur SEULE hauteur, où rien n'a prouvé le dialogue.
     """
     assert clean(find_dialog(load(EXPLORANCIENNE_100))) == EXPLORANCIENNE_100["expected"]
+
+
+@pytest.mark.ocr_fixture
+@pytest.mark.parametrize("fichier", THEME_GARDIEN["files"])
+def test_lit_un_dialogue_quel_que_soit_le_theme(fichier):
+    """Le même dialogue doit être lu sous tous les thèmes du jeu.
+
+    Capturé en fenêtré 2710×1539 sous trois thèmes de palettes distinctes. À
+    cette résolution, le bloc de réponses (~43800 px²) passait sous un seuil
+    d'aire alors rapporté à l'aire de l'image (48000 px²) : écarté, plus
+    d'appariement, le dialogue passait inaperçu — et ce dans les DIX thèmes, le
+    seuil ne dépendant que de la géométrie, pas de la couleur. Le seuil d'aire
+    est désormais absolu (MIN_AREA), une bulle ne grandissant pas avec l'aire
+    de l'écran. Le texte attendu est identique aux trois thèmes, ce qui vérifie
+    au passage que la couleur du thème n'influe pas sur l'OCR.
+    """
+    frame = cv2.imread(str(FIXTURES / fichier))
+    assert frame is not None, f"fixture illisible : {fichier}"
+    assert clean(find_dialog(frame)) == THEME_GARDIEN["expected"]
 
 
 @pytest.mark.ocr_fixture

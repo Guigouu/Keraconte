@@ -76,12 +76,36 @@ SUB_MIN_HEIGHT_RATIO = 0.06
 MIN_PUNCTUATION_RATIO = 0.08
 
 # Taille minimale d'un bloc candidat, avant tout appariement : ici aucune
-# bulle n'est encore connue, la seule référence d'échelle est l'image. Une
-# aire est un produit largeur×hauteur : elle se rapporte donc à l'aire de
-# l'image (facteur au carré avec la résolution), la largeur à la largeur.
-# Calibrés sur 2560×1350, où l'aire minimale valait 40000 px² et la largeur
-# 300 px : 40000 / (2560×1350) et 300 / 2560.
-MIN_AREA_RATIO = 40000 / (2560 * 1350)
+# bulle n'est encore connue.
+#
+# L'aire est laissée en pixels ABSOLUS, à dessein — au même titre que
+# MERGED_MIN_HEIGHT et les noyaux morphologiques. On l'avait rapportée à l'aire
+# de l'image (facteur au carré avec la résolution) ; c'était une erreur, que la
+# mesure a corrigée. Le point de bascule fut un bloc de réponses à OPTION
+# UNIQUE : chez le Gardien des Geôles (dossier themes/), la seule réponse
+# « Demander quand… » ne fait que ~43800 px² de contour, là où un dialogue à
+# plusieurs réponses en fait 54000 (brakmar) à 63000 (bworkidais). Ce plus
+# petit bloc légitime (43800) restait au-dessus d'un plancher absolu de 40000,
+# mais un seuil quadratique, gonflé à 48000 par la taille de la FENÊTRE
+# (2710×1539), l'écartait — et le dialogue passait inaperçu dans les 10 thèmes.
+# Un seuil absolu ne dépend pas de la fenêtre : marge saine (43800/40000 = 1,10),
+# et sur 67 captures d'interface AUCUN contour écarté par l'aire ne tombe dans
+# la bande [0,85 ; 1,10] — desserrer n'admet aucun panneau à la marge. Les deux
+# crops (theme_bleu 765×478, tokageko 721×401) passent aussi (44720, 82160).
+#
+# ⚠ Ce seuil absolu vaut pour la résolution de calibration (bulle 555-633 px de
+# large sur toutes nos captures, 2550-2710). Il n'est PAS prouvé « toute
+# résolution » : sur un rendu à une autre échelle (720p, 4K natif), la bulle
+# change de taille et l'absolu ne suit pas. Objectif utilisateur = toute
+# résolution, accessibilité ≥ 100 %, police > Petit. À caler avec une capture
+# 1920×1080 / 100 % : si la bulle y reste 555-633 px, l'UI est en pixels fixes
+# et l'absolu tient partout ; sinon il faut un proxy d'échelle de rendu.
+#
+# La largeur, elle, reste relative à la largeur d'image — non par théorie
+# (aucune mesure ne dit qu'elle suit l'échelle quand l'aire ne la suit pas),
+# mais faute de contre-exemple : ne pas y toucher sans mesure, les crops
+# (721/765 px) la rendent risquée. Calibrée sur 2560×1350 (largeur mini 300 px).
+MIN_AREA = 40000
 MIN_WIDTH_RATIO = 300 / 2560
 # Plancher de longueur du texte lu. Deux valeurs selon la preuve accumulée :
 # sans réponses appariées, le bloc n'est admis que sur sa hauteur ou sa
@@ -213,9 +237,9 @@ def find_bubbles(frame):
     mask = cv2.morphologyEx(bubble_mask(frame), cv2.MORPH_CLOSE, CLOSE_KERNEL)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # Seuils de taille rapportés aux dimensions de l'image : une aire à son
-    # aire, une largeur à sa largeur, pour suivre la résolution de l'écran.
-    min_area = MIN_AREA_RATIO * width * height
+    # L'aire mini est absolue (une bulle ne grandit pas avec l'aire de
+    # l'écran, cf. MIN_AREA) ; la largeur mini suit la largeur de l'image.
+    min_area = MIN_AREA
     min_width = MIN_WIDTH_RATIO * width
     boxes = []
     for contour in contours:
