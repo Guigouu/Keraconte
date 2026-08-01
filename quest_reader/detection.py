@@ -297,11 +297,25 @@ def splits_into_pair(frame, box):
             continue
         parts.append((cy, cx, cw, ch))
     parts.sort()
-    # L'appariement est celui de « is_reply_block », inchangé : un bloc de
-    # réponses aligné, de largeur voisine, juste sous le texte.
+    # L'appariement est celui de « is_reply_block » : un bloc de réponses aligné,
+    # de largeur voisine, juste sous le texte. Un test de plus, propre à la
+    # re-segmentation : la réponse ne doit pas être PLUS HAUTE que la bulle.
+    #
+    # « is_reply_block » vérifie l'écart, l'alignement et la largeur — que la
+    # structure interne d'un panneau d'interface imite par construction (un
+    # en-tête étroit au-dessus d'une liste alignée de même largeur). Ce qui la
+    # trahit, c'est la hauteur : un vrai bloc de réponses (1 à 4 options) est
+    # toujours plus court que la bulle de dialogue qu'il suit ; la « réponse »
+    # d'un panneau est sa liste entière (destinations d'un zaap, table de l'hôtel
+    # des ventes), bien plus haute que son en-tête. Mesuré sur les registres :
+    # vrais dialogues à 0,38-0,72 (réponse/bulle), faux positifs d'interface à
+    # 1,70-14,23 — le seuil à 1 tombe dans une bande vide. L'invariant, et non un
+    # nombre ajusté : une réponse n'est jamais plus haute que la bulle.
     for above_index, above in enumerate(parts):
-        if any(is_reply_block(above, below) for below in parts[above_index + 1 :]):
-            return True
+        above_h = above[3]
+        for below in parts[above_index + 1 :]:
+            if is_reply_block(above, below) and below[3] <= above_h:
+                return True
     return False
 
 

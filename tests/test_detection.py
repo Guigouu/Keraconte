@@ -384,6 +384,12 @@ def test_drop_top_chrome_epargne_une_tete_majoritaire():
         # vrai dialogue (tous appariés) mais cinq panneaux d'interface : il a
         # été retiré. Cette fixture verrouille ce retrait.
         "dialogues/interface_metiers.png",
+        # Panneau « Zaap » : la re-segmentation (« splits_into_pair ») prenait
+        # son en-tête pour une bulle et la liste des destinations pour un bloc
+        # de réponses. Un vrai bloc de réponses n'est jamais plus haut que la
+        # bulle ; la liste, elle, l'est de loin (ratio 11 contre 0,4-0,7 pour un
+        # vrai dialogue). Cette fixture verrouille ce test de hauteur.
+        "dialogues/interface_zaap.png",
     ],
 )
 def test_ignore_les_panneaux_d_interface(fichier):
