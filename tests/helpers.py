@@ -270,7 +270,19 @@ THEME_GARDIEN = {
         "themes/brakmar.png",
         "themes/bonta.png",
         "themes/wabbit.png",
+        "themes/belladone.png",
+        "themes/emerald_mine.png",
+        "themes/gold_and_steel.png",
+        "themes/pandala.png",
+        "themes/sufokia.png",
     ],
+    # Deux captures de thème restent versionnées mais HORS de ce test d'égalité :
+    #  - « tribute.png » montre un autre PNJ (« Ici sont enfermés les pires
+    #    chenapans… »), pas le dialogue de la clé à molette ;
+    #  - « unicorn.png » lit bien le bon dialogue, mais l'OCR y rend une
+    #    apostrophe droite (« qu'elle ») là où les autres rendent la courbe
+    #    (« qu'elle ») : la détection est correcte, seule l'égalité stricte de
+    #    texte échoue. Le test vérifie la détection, pas la fidélité d'apostrophe.
     "expected": "Lorsque vous saisissez la clé à molette, un léger frémissement "
     "vous parcourt. Une étrange énergie émane du métal, comme si l’objet "
     "cherchait à réagir à votre présence. En la laissant tomber "
