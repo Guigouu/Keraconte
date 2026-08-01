@@ -180,12 +180,13 @@ class Reader:
         ):
             self.last_seen = now
             return
-        # Dofus écrit sa réplique progressivement, et l'OCR la saisit en
-        # chemin : « ...apaiser le molosse. » à une image, la phrase entière
-        # à la suivante. Lire la première donnerait un dialogue amputé dont
-        # la fin ne serait jamais dite, et chaque état intermédiaire passait
-        # pour une nouvelle réplique. On accumule donc les variantes tant que
-        # le texte grandit, et l'on ne parle qu'une fois qu'il s'est posé.
+        # Le jeu n'écrit PAS sa réplique progressivement : la bulle s'affiche
+        # d'un coup. C'est l'OCR qui la saisit en chemin — une version tronquée
+        # (dernière ligne ratée) à une image, « ...apaiser le molosse. », puis
+        # le texte complet à la suivante. Lire la première donnerait un dialogue
+        # amputé dont la fin ne serait jamais dite, et chaque état intermédiaire
+        # passait pour une nouvelle réplique. On accumule donc les variantes tant
+        # que le texte grandit, et l'on ne parle qu'une fois qu'il s'est posé.
         if self.pending and same_dialog(text, self.pending[-1]):
             self.pending.append(text)
         else:
