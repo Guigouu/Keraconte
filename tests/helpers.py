@@ -236,6 +236,24 @@ EXPLORANCIENNE_100 = {
 }
 
 
+# Relevé en jeu chez Hazel Ementaire (plein écran fenêtré 2710×1539), dont la
+# réponse unique « S'en aller. » tient sur UNE seule ligne. Ce bloc de réponses
+# ne fait que ~36000 px² : sous « MIN_AREA », « find_bubbles » ne le rend jamais
+# comme contour, l'appariement ne le voit pas, et le dialogue passait inaperçu
+# (« pas-de-preuve », ocr=0ms). « find_reply_below » le rattrape en re-segmentant
+# la bande sous la bulle sans plancher d'aire. Verrouille ce cas : une réponse
+# MONO-ligne, séparée de sa bulle, doit être appariée comme une réponse
+# multi-lignes le serait. Le chat (coin bas-gauche) est masqué avant commit.
+HAZEL = {
+    "file": "dialogues/dialogue_hazel.png",
+    "expected": "La cité des Mercenaires est le premier endroit visité par les "
+    "âmes venues d'Incarnam. C'est un lieu où il se passe toujours quelque "
+    "chose ! Le commerce et l'artisanat sont florissants. Si tu as besoin de "
+    "t'équiper pour partir à l'aventure, tu devrais trouver ce qu'il te faut "
+    "sans trop de difficultés.",
+}
+
+
 # Le MÊME dialogue PNJ (« Gardien des Geôles d'Astrub »), capturé sous trois
 # thèmes de palettes distinctes (brakmar sombre, bonta clair, wabbit coloré)
 # en fenêtré 2710×1539. Ce dialogue n'a qu'UNE option de réponse : son bloc de

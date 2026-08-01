@@ -305,6 +305,60 @@ def splits_into_pair(frame, box):
     return False
 
 
+def find_reply_below(frame, bubble):
+    """Cherche le bloc de réponses juste SOUS une bulle validée, ou None.
+
+    « find_bubbles » écarte tout contour dont l'aire tombe sous « MIN_AREA » —
+    un plancher pensé pour les candidats-BULLES isolés, où aucune échelle n'est
+    encore connue. Mais une réponse à UNE seule ligne (« S'en aller. », relevée
+    chez Hazel Ementaire) fait ~36000 px² : sous ce plancher, elle ne devient
+    jamais un contour, l'appariement ne la voit pas, et le dialogue passe
+    inaperçu (« pas-de-preuve »). C'est une asymétrie : « splits_into_pair »,
+    lui, apparie une réponse courte FUSIONNÉE à sa bulle avec des seuils
+    seulement RELATIFS, sans plancher d'aire. Ce second passage étend la même
+    discipline au cas SÉPARÉ — la bulle est déjà prouvée, on ne fait que
+    chercher sa réponse en dessous, bornés par sa géométrie.
+
+    On re-segmente la bande sous la bulle (généreuse en largeur, pour ne pas
+    rogner un contour au bord et fausser sa boîte), on filtre les échardes en
+    proportion de la bulle, et l'on rend la première boîte qui passe
+    « is_reply_block ». Aucun plancher d'aire : c'est la preuve relationnelle,
+    et elle seule, qui admet le bloc — un panneau isolé n'en a pas.
+    """
+    by, bx, bw, bh = bubble
+    height, width = frame.shape[:2]
+    # Bande sous la bulle : de sa base jusqu'au plus grand écart toléré, plus
+    # une hauteur de réponse plausible. En largeur, la bulle élargie de la
+    # tolérance d'alignement de chaque côté.
+    max_gap = bw * MAX_REPLY_GAP_RATIO
+    align = bw * ALIGN_TOLERANCE_RATIO
+    top = by + bh
+    # Sous la base de la bulle : le plus grand écart toléré par is_reply_block,
+    # plus une hauteur de réponse plausible (une bulle de dialogue) au-delà.
+    bottom = min(height, int(top + max_gap + bh))
+    left = max(0, int(bx - align))
+    right = min(width, int(bx + bw + align))
+    if bottom <= top or right <= left:
+        return None
+    region = bubble_mask(frame[top:bottom, left:right])
+    contours, _ = cv2.findContours(
+        region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    candidates = []
+    for contour in contours:
+        cx, cy, cw, ch = cv2.boundingRect(contour)
+        # Échardes écartées en proportion de la bulle, jamais en pixels.
+        if cw < bw * SUB_MIN_WIDTH_RATIO or ch < bh * SUB_MIN_HEIGHT_RATIO:
+            continue
+        # Coordonnées ramenées au repère plein cadre, format (y, x, w, h).
+        candidates.append((cy + top, cx + left, cw, ch))
+    candidates.sort()
+    for candidate in candidates:
+        if is_reply_block(bubble, candidate):
+            return candidate
+    return None
+
+
 def find_dialog(frame):
     """Renvoie le texte de la bulle de dialogue, ou None."""
     text, _ = find_dialog_box(frame)
@@ -366,8 +420,20 @@ def find_dialog_box(frame, boxes=None):
         # inopérant sur un bloc haut ET fusionné (L'Explorancienne à 100 %,
         # h=435). Ne pas « optimiser » cet appel : son coût (bubble_mask sur la
         # seule région) est négligeable face à l'OCR.
-        paired = replies is not None
+        # Une réponse à une seule ligne est trop petite pour survivre au
+        # plancher d'aire de « find_bubbles » : elle n'est donc pas dans
+        # « boxes », et l'appariement d'emblée ci-dessus l'a manquée. On la
+        # rattrape en re-segmentant la bande sous la bulle, sans plancher
+        # d'aire. Trouvée, elle devient un « replies » à part entière : le
+        # bloc suit alors le chemin apparié complet (drop_replies, plancher
+        # bas, saut de reads_like_dialogue), exactement comme un appariement
+        # d'emblée. NE PAS se contenter de « paired=True » sans poser
+        # « replies » : « drop_replies » tournerait sur un bloc sans réponses
+        # et le tronquerait au premier large blanc.
         if replies is None:
+            replies = find_reply_below(frame, (y, x, w, h))
+        paired = replies is not None
+        if not paired:
             paired = splits_into_pair(frame, (y, x, w, h))
             if not (h >= MERGED_MIN_HEIGHT or paired):
                 # Trace par box (silencieuse hors QR_DEBUG) : sur quelle porte le

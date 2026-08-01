@@ -32,6 +32,7 @@ from tests.helpers import (  # noqa: E402
     ENROLEMENT,
     EXPLORANCIENNE_100,
     FIXTURES,
+    HAZEL,
     HERCULE,
     HERCULE_PERMUTE,
     IDS,
@@ -467,6 +468,21 @@ def test_lit_un_dialogue_quel_que_soit_le_theme(fichier):
     frame = cv2.imread(str(FIXTURES / fichier))
     assert frame is not None, f"fixture illisible : {fichier}"
     assert clean(find_dialog(frame)) == THEME_GARDIEN["expected"]
+
+
+@pytest.mark.ocr_fixture
+def test_lit_un_dialogue_a_reponse_mono_ligne():
+    """Un dialogue dont la réponse tient sur UNE ligne doit être lu.
+
+    Relevé en jeu chez Hazel Ementaire : la réponse unique « S'en aller. » fait
+    ~36000 px², sous MIN_AREA. « find_bubbles » ne la rend donc jamais comme
+    contour, l'appariement d'emblée la manque, et « splits_into_pair » (qui ne
+    regarde que la région de la bulle) ne la voit pas non plus : le dialogue
+    passait inaperçu. « find_reply_below » re-segmente la bande sous la bulle
+    sans plancher d'aire et rétablit l'appariement. Une réponse mono-ligne
+    séparée est ainsi appariée comme le serait une réponse multi-lignes.
+    """
+    assert clean(find_dialog(load(HAZEL))) == HAZEL["expected"]
 
 
 @pytest.mark.ocr_fixture
