@@ -135,7 +135,18 @@ MAX_WHITE_RATIO = 0.15
 # reproduisent à moins de 6 % près les valeurs absolues d'origine (160, 40,
 # 60) sur les fixtures actuelles.
 REF_BUBBLE_WIDTH = 600
-MAX_REPLY_GAP_RATIO = 160 / REF_BUBBLE_WIDTH
+# L'écart toléré entre la base de la bulle et le haut de sa réponse. La valeur
+# héritée (160/600 ≈ 0,27) venait de la calibration absolue d'avant les
+# fixtures (cf. 3f422cb, « à 6 % près des valeurs d'origine ») : permissive par
+# héritage, non par une mesure. Or un vrai bloc de réponses COLLE à sa bulle,
+# tandis qu'un panneau d'interface place sa fausse « réponse » loin en dessous.
+# Mesuré (gap/largeur de bulle) sur tous les registres : 25 vrais dialogues de
+# -0,012 à 0,041 (réponses collées, chevauchement léger compris), faux positifs
+# d'interface de 0,089 à 0,202 — plus le HDV relevé en jeu à 0,166. Le seuil à
+# 0,06 tombe dans la bande vide entre les deux et écarte cinq des six faux
+# positifs restants (hdv, cosmétique, écran de fin de combat). Un panneau à
+# fausse bande collée (recettes) reste hors de portée du gap : cas isolé assumé.
+MAX_REPLY_GAP_RATIO = 0.06
 MAX_REPLY_OVERLAP_RATIO = 40 / REF_BUBBLE_WIDTH
 ALIGN_TOLERANCE_RATIO = 60 / REF_BUBBLE_WIDTH
 

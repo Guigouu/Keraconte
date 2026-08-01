@@ -390,6 +390,11 @@ def test_drop_top_chrome_epargne_une_tete_majoritaire():
         # bulle ; la liste, elle, l'est de loin (ratio 11 contre 0,4-0,7 pour un
         # vrai dialogue). Cette fixture verrouille ce test de hauteur.
         "dialogues/interface_zaap.png",
+        # Hôtel de vente : « find_reply_below » accrochait une bande d'interface
+        # LOIN sous le panneau comme une fausse réponse. Un vrai bloc de réponses
+        # COLLE à sa bulle (écart/largeur 0,04 au plus) ; ici l'écart valait 0,09
+        # et plus. Cette fixture verrouille le resserrage de MAX_REPLY_GAP_RATIO.
+        "dialogues/interface_hdv_achat.png",
     ],
 )
 def test_ignore_les_panneaux_d_interface(fichier):
