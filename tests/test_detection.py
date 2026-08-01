@@ -374,10 +374,20 @@ def test_drop_top_chrome_epargne_une_tete_majoritaire():
 
 
 @pytest.mark.parametrize(
-    "fichier", ["dialogues/interface_hdv.png", "dialogues/interface_hdv_liste.png"]
+    "fichier",
+    [
+        "dialogues/interface_hdv.png",
+        "dialogues/interface_hdv_liste.png",
+        # Panneau « Métiers » (h=836) : il était lu à tort par le seul chemin
+        # « hauteur seule » (« h >= MERGED_MIN_HEIGHT »), sans aucune preuve
+        # d'appariement. Mesuré sur les registres, ce chemin n'admettait AUCUN
+        # vrai dialogue (tous appariés) mais cinq panneaux d'interface : il a
+        # été retiré. Cette fixture verrouille ce retrait.
+        "dialogues/interface_metiers.png",
+    ],
 )
 def test_ignore_les_panneaux_d_interface(fichier):
-    """L'hôtel des ventes ne doit pas être lu.
+    """L'hôtel des ventes et les grands panneaux ne doivent pas être lus.
 
     Accepter un bloc sans réponses appariées, pour rattraper les bulles
     soudées à leurs choix, laissait aussi passer les panneaux d'interface :

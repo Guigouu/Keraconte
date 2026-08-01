@@ -402,24 +402,30 @@ def find_dialog_box(frame, boxes=None):
         # Quand les deux blocs se touchent, la fermeture les fond en un seul :
         # la paire manque alors. On la rattrape en re-segmentant finement le
         # bloc (« splits_into_pair »), ce qui rend la bulle et les réponses
-        # comme deux contours et rétablit l'appariement. La hauteur reste un
-        # pré-filtre bon marché, mais roukerol (314 px) passe sous son seuil.
+        # comme deux contours et rétablit l'appariement.
         #
-        # Deux preuves distinctes admettent un bloc sans réponses appariées, et
-        # elles ne se valent PAS. Une paire re-segmentée est une preuve
-        # RELATIONNELLE, de même nature que « replies is not None » : le bloc est
-        # un dialogue soudé à ses réponses. La seule hauteur, elle, ne prouve
-        # rien — un panneau d'interface (hôtel des ventes, 838 px) est tout aussi
-        # haut. « paired » garde la trace de ce qui a admis le bloc et commande
-        # en aval le saut de « reads_like_dialogue » et le plancher bas.
+        # SEULE la preuve RELATIONNELLE admet ici un bloc : appariement d'emblée
+        # (« replies is not None »), réponse mono-ligne trouvée sous la bulle
+        # (« find_reply_below »), ou paire retrouvée par re-segmentation
+        # (« splits_into_pair »). La hauteur, elle, ne prouvait rien : mesuré sur
+        # les registres (themes + dialogues + echelle), AUCUN vrai dialogue
+        # n'était admis par sa seule hauteur — tous passaient par l'une des trois
+        # preuves ci-dessus. En revanche cinq panneaux d'interface (compagnons,
+        # guilde, métiers, succès, un sort) atteignaient « h >= MERGED_MIN_HEIGHT »
+        # et étaient lus à tort. L'ancien « h >= MERGED or splits » est donc
+        # retiré : un bloc sans paire est désormais toujours écarté ici.
         #
-        # « splits_into_pair » DOIT donc tourner inconditionnellement ici, même
-        # quand la hauteur suffirait déjà : le court-circuiter derrière
-        # « h >= MERGED » (comme le faisait l'ancien
-        # « h >= MERGED or splits_into_pair(...) ») rendrait le correctif
-        # inopérant sur un bloc haut ET fusionné (L'Explorancienne à 100 %,
-        # h=435). Ne pas « optimiser » cet appel : son coût (bubble_mask sur la
-        # seule région) est négligeable face à l'OCR.
+        # « MERGED_MIN_HEIGHT » et « reads_like_dialogue » restent définis : le
+        # premier documente le seuil retiré, le second est le filet de secours
+        # (plus bas) pour un éventuel bloc admis sans preuve relationnelle —
+        # aujourd'hui aucun, mais le jeu de dialogues « appariables » s'agrandit
+        # à mesure qu'on le découvre (Hazel n'est appariée que depuis
+        # « find_reply_below »).
+        #
+        # « splits_into_pair » tourne inconditionnellement : ne pas l'« optimiser »
+        # derrière un pré-filtre de hauteur (son coût, bubble_mask sur la seule
+        # région, est négligeable face à l'OCR), sans quoi un bloc haut ET fusionné
+        # (L'Explorancienne à 100 %, h=435) échapperait à la re-segmentation.
         # Une réponse à une seule ligne est trop petite pour survivre au
         # plancher d'aire de « find_bubbles » : elle n'est donc pas dans
         # « boxes », et l'appariement d'emblée ci-dessus l'a manquée. On la
@@ -430,20 +436,26 @@ def find_dialog_box(frame, boxes=None):
         # d'emblée. NE PAS se contenter de « paired=True » sans poser
         # « replies » : « drop_replies » tournerait sur un bloc sans réponses
         # et le tronquerait au premier large blanc.
+        #
+        # « _origine » (silencieux hors QR_DEBUG) note LAQUELLE des trois preuves
+        # a admis le bloc : sert à trier les faux positifs d'interface restants
+        # par le chemin qui les laisse passer (split vs emblée).
+        _origine = "emblée" if replies is not None else None
         if replies is None:
             replies = find_reply_below(frame, (y, x, w, h))
+            if replies is not None:
+                _origine = "below"
         paired = replies is not None
         if not paired:
             paired = splits_into_pair(frame, (y, x, w, h))
-            if not (h >= MERGED_MIN_HEIGHT or paired):
-                # Trace par box (silencieuse hors QR_DEBUG) : sur quelle porte le
-                # bloc est écarté. Sert à mesurer, sur un flux en jeu, la
-                # DISTRIBUTION des chemins d'une image à l'autre — un instantané
-                # ne montre pas la variance de la fusion morphologique.
-                _trace(
-                    f"  box (y={y} x={x} w={w} h={h}) PORTE=pas-de-preuve "
-                    f"splits={paired} h>=merged={h >= MERGED_MIN_HEIGHT}"
-                )
+            if paired:
+                _origine = "split"
+            else:
+                # Trace par box (silencieuse hors QR_DEBUG) : le bloc n'a aucune
+                # preuve relationnelle, il est écarté. Sert à mesurer, sur un flux
+                # en jeu, la DISTRIBUTION des chemins d'une image à l'autre — un
+                # instantané ne montre pas la variance de la fusion morphologique.
+                _trace(f"  box (y={y} x={x} w={w} h={h}) PORTE=pas-de-preuve")
                 continue
         region = frame[y : y + h, x : x + w]
         white = (region > 200).all(2).mean()
@@ -486,12 +498,15 @@ def find_dialog_box(frame, boxes=None):
         # « drop_replies »), avant tout calcul en aval qu'il polluerait.
         words = drop_top_chrome(words)
         # « reads_like_dialogue » n'écarte les panneaux d'interface que faute de
-        # preuve relationnelle. Or un bloc dont « splits_into_pair » a retrouvé
-        # la paire EN A une : le lui imposer rejetait à tort les dialogues
-        # narratifs peu ponctués (« L'Explorancienne », 172 car., 2 points sur
-        # 28 mots → ratio 0,07 < 0,08). On ne garde donc ce test que pour les
-        # blocs admis sur leur SEULE hauteur, où rien n'a encore prouvé le
-        # dialogue. Même raisonnement que le plancher apparié plus bas.
+        # preuve relationnelle. Or un bloc apparié EN A une : le lui imposer
+        # rejetait à tort les dialogues narratifs peu ponctués (« L'Explorancienne »,
+        # 172 car., 2 points sur 28 mots → ratio 0,07 < 0,08). On ne garde donc ce
+        # test que pour un bloc admis SANS preuve relationnelle. Depuis le retrait
+        # du chemin « hauteur seule » (voir plus haut), tout bloc qui parvient ici
+        # est apparié : « not paired » est aujourd'hui toujours faux et ce test ne
+        # s'exécute plus. On le conserve — filet de secours si une future preuve
+        # d'appariement manquait à un vrai dialogue non ponctué. Même raisonnement
+        # que le plancher apparié plus bas.
         if not paired and not reads_like_dialogue(words):
             _trace(
                 f"  box (y={y} x={x} w={w} h={h}) PORTE=like "
@@ -501,7 +516,11 @@ def find_dialog_box(frame, boxes=None):
         text = clean(" ".join(word["text"] for word in words))
         floor = MIN_CHARS_PAIRED if paired else MIN_CHARS
         if len(text) >= floor:
-            _trace(f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
+            _trace(
+                f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s) "
+                f"| box=(y={y} x={x} w={w} h={h}) paired={paired} "
+                f"origine={_origine} reply={replies}"
+            )
             return text, (y, x, w, h)
         _trace(
             f"  box (y={y} x={x} w={w} h={h}) PORTE=floor "
