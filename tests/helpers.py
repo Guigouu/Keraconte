@@ -19,7 +19,7 @@ FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 # Position des blocs dans chaque capture, relevée à la main.
 BRAKMAR = {
-    "file": "dialogue_brakmar.png",
+    "file": "dialogues/dialogue_brakmar.png",
     "dialogue": (1110, 490, 690, 270),
     "replies": (1110, 735, 690, 110),
     "expected": "C'est moi le plus grand, le plus magique, le plus doué des "
@@ -27,7 +27,7 @@ BRAKMAR = {
     "pièce unique.",
 }
 TOKAGEKO = {
-    "file": "dialogue_tokageko.png",
+    "file": "dialogues/dialogue_tokageko.png",
     "dialogue": (20, 40, 660, 140),
     "replies": (20, 180, 660, 220),
     "expected": "Pssst, approche-toi. Si tu as des badges d'expédition, j'ai "
@@ -37,7 +37,7 @@ TOKAGEKO = {
 # disparu : la bulle y est à hue 117 pour un écart entre canaux de 23, là où
 # le critère d'origine exigeait moins de 12. C'est la teinte qui l'isole.
 THEME_BLEU = {
-    "file": "dialogue_theme_bleu.png",
+    "file": "dialogues/dialogue_theme_bleu.png",
     "dialogue": (100, 166, 575, 101),
     "replies": (116, 287, 558, 79),
     "expected": "Tu ne vois pas que je suis en patrouille ? Va-t'en !",
@@ -141,12 +141,12 @@ class FauxSortie:
 
 
 CLIQUETIS = {
-    "file": "dialogue_cliquetis.png",
+    "file": "dialogues/dialogue_cliquetis.png",
     "expected": "*Cliquetis* “Quetis,Cliquetis* *Cliquetis*-*Cliquecliquetis*, "
     "*Clicliquetis*",
 }
 ENROLEMENT = {
-    "file": "dialogue_enrolement.png",
+    "file": "dialogues/dialogue_enrolement.png",
     "expected": "Tiens donc, une âme neutre en ces lieux, Je te conseille de "
     "t'enrôler pour Brâkmar, le mal est toujours plus amusant. Si ça "
     "t'intéresse, ramène-moi 10 dagues de boisaille. Elles serviront à "
@@ -171,7 +171,7 @@ def texte_de(mots):
 
 
 KLAKO = {
-    "file": "dialogue_klako.png",
+    "file": "dialogues/dialogue_klako.png",
     "expected": "Bonjour Tryvia. Je suis Klako, un des meilleurs chasseurs "
     "de dragodindes de la région. Bienvenue !",
 }
@@ -180,7 +180,7 @@ KLAKO = {
 # Relevé en jeu chez Roukerol de Nerouz. La bulle et le bloc de réponses se
 # touchent : la morphologie les fond en un seul contour de hauteur 314, sous
 ROUKEROL = {
-    "file": "dialogue_roukerol.png",
+    "file": "dialogues/dialogue_roukerol.png",
     "expected": "Le bricolage, il y a ceux qui savent faire et qui aiment ça. "
     "Des gens comme moi, en somme. Il y a ceux qui ne savent pas faire, et "
     "qui n'aiment pas ça. Je peux le comprendre, chacun ses goûts. Et il y a "
@@ -196,7 +196,7 @@ ROUKEROL = {
 # ces panneaux permanents empêchaient. « dialogue »/« replies » sont au
 # format de « erase » (x, y, w, h), pour simuler la fermeture de la fenêtre.
 BWORKIDAIS = {
-    "file": "dialogue_bworkidais.png",
+    "file": "dialogues/dialogue_bworkidais.png",
     "expected": "Zog Zog à toû.",
     "dialogue": (1109, 333, 576, 102),
     "replies": (1125, 457, 559, 113),
@@ -211,7 +211,7 @@ BWORKIDAIS = {
 # bruit intra-ligne « _kd'à » subsiste — hors du périmètre de ce correctif),
 # non le texte à l'écran.
 BWORKNROLL = {
-    "file": "dialogue_bworknroll.png",
+    "file": "dialogues/dialogue_bworknroll.png",
     "expected": "Pour commencer des canines de Gobelin, des cheveux de Sadida "
     "et des os de Trooll. Voilà un scalpel qui te permettra de désosser un "
     "Trooll. Il y en a dans le donjon _kd'à côté ou dans la fosse.",

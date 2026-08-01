@@ -373,7 +373,7 @@ def test_drop_top_chrome_epargne_une_tete_majoritaire():
 
 
 @pytest.mark.parametrize(
-    "fichier", ["interface_hdv.png", "interface_hdv_liste.png"]
+    "fichier", ["dialogues/interface_hdv.png", "dialogues/interface_hdv_liste.png"]
 )
 def test_ignore_les_panneaux_d_interface(fichier):
     """L'hôtel des ventes ne doit pas être lu.
