@@ -511,6 +511,14 @@ def find_dialog_box(frame, boxes=None):
         )
         _ocr_ms += (time.perf_counter() - _t1) * 1000
         words = read_words(data)
+        # Le test « lit comme un dialogue » se fait sur les mots ENTIERS du bloc,
+        # avant que « drop_replies » n'en retire les réponses : celles-ci sont
+        # elles-mêmes des phrases ponctuées, et les garder rend le test plus
+        # sûr. Mesuré (ratio de ponctuation avant drop_replies) : les quatre
+        # vrais dialogues re-segmentés à 0,091-0,183, le panneau Recettes à
+        # 0,065 — le seuil 0,08 les sépare ; APRÈS drop_replies, L'Explorancienne
+        # tombe à 0,067 et le test la rejetterait à tort.
+        words_entiers = drop_top_chrome(words)
         # Sur un bloc fusionné, l'OCR ramène aussi les réponses du joueur :
         # elles se détachent par un large blanc, pas par leur grammaire. On les
         # retire dès qu'il n'y a pas d'appariement D'EMBLÉE (« replies is
@@ -522,20 +530,26 @@ def find_dialog_box(frame, boxes=None):
         # du texte : inconditionnel (la bulle appariée n'est pas passée par
         # « drop_replies »), avant tout calcul en aval qu'il polluerait.
         words = drop_top_chrome(words)
-        # « reads_like_dialogue » n'écarte les panneaux d'interface que faute de
-        # preuve relationnelle. Or un bloc apparié EN A une : le lui imposer
-        # rejetait à tort les dialogues narratifs peu ponctués (« L'Explorancienne »,
-        # 172 car., 2 points sur 28 mots → ratio 0,07 < 0,08). On ne garde donc ce
-        # test que pour un bloc admis SANS preuve relationnelle. Depuis le retrait
-        # du chemin « hauteur seule » (voir plus haut), tout bloc qui parvient ici
-        # est apparié : « not paired » est aujourd'hui toujours faux et ce test ne
-        # s'exécute plus. On le conserve — filet de secours si une future preuve
-        # d'appariement manquait à un vrai dialogue non ponctué. Même raisonnement
-        # que le plancher apparié plus bas.
-        if not paired and not reads_like_dialogue(words):
+        # « reads_like_dialogue » exige des phrases ponctuées plutôt qu'une liste
+        # d'étiquettes d'interface. On l'applique quand la preuve du dialogue est
+        # FAIBLE :
+        #  - aucune preuve relationnelle (« not paired ») — filet de secours ;
+        #  - preuve par RE-SEGMENTATION (« origine == split ») : la plus fragile
+        #    des trois, car les deux moitiés de la paire sont inventées en
+        #    re-découpant un seul blob. Un panneau « Recettes » (relevé en jeu,
+        #    « Extrait de Mangeoire Éleveur Niv. » ; sur fixture « Galet Solaire
+        #    150 ») s'y scinde en un faux couple bulle/réponse que la géométrie
+        #    seule (hauteur, écart, largeur) ne distingue pas d'un vrai dialogue.
+        # Les preuves FORTES (appariement d'emblée, réponse trouvée sous la bulle)
+        # en sont dispensées : leur imposer ce test rejetait à tort les dialogues
+        # narratifs peu ponctués. Le test porte sur « words_entiers » (avant
+        # drop_replies), voir plus haut.
+        if (not paired or _origine == "split") and not reads_like_dialogue(
+            words_entiers
+        ):
             _trace(
                 f"  box (y={y} x={x} w={w} h={h}) PORTE=like "
-                f"mots={len(words)} paired={paired}"
+                f"mots={len(words_entiers)} paired={paired} origine={_origine}"
             )
             continue
         text = clean(" ".join(word["text"] for word in words))

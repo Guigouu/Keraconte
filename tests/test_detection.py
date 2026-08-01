@@ -395,6 +395,13 @@ def test_drop_top_chrome_epargne_une_tete_majoritaire():
         # COLLE à sa bulle (écart/largeur 0,04 au plus) ; ici l'écart valait 0,09
         # et plus. Cette fixture verrouille le resserrage de MAX_REPLY_GAP_RATIO.
         "dialogues/interface_hdv_achat.png",
+        # Panneau « Recettes » : sa fausse réponse COLLE au panneau (écart nul),
+        # échappant au test de hauteur comme à celui d'écart. La re-segmentation
+        # (« split ») étant la preuve la plus faible, on y ajoute
+        # « reads_like_dialogue » : ce panneau lit une étiquette (« Galet Solaire
+        # 150 ») sans ponctuation de phrase (ratio 0,065 < 0,08), là où les vrais
+        # dialogues re-segmentés dépassent 0,09. Cette fixture verrouille ce test.
+        "dialogues/interface_recettes.png",
     ],
 )
 def test_ignore_les_panneaux_d_interface(fichier):
