@@ -19,7 +19,7 @@ FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 # Position des blocs dans chaque capture, relevée à la main.
 BRAKMAR = {
-    "file": "dialogue_brakmar.png",
+    "file": "dialogues/dialogue_brakmar.png",
     "dialogue": (1110, 490, 690, 270),
     "replies": (1110, 735, 690, 110),
     "expected": "C'est moi le plus grand, le plus magique, le plus doué des "
@@ -27,7 +27,7 @@ BRAKMAR = {
     "pièce unique.",
 }
 TOKAGEKO = {
-    "file": "dialogue_tokageko.png",
+    "file": "dialogues/dialogue_tokageko.png",
     "dialogue": (20, 40, 660, 140),
     "replies": (20, 180, 660, 220),
     "expected": "Pssst, approche-toi. Si tu as des badges d'expédition, j'ai "
@@ -37,7 +37,7 @@ TOKAGEKO = {
 # disparu : la bulle y est à hue 117 pour un écart entre canaux de 23, là où
 # le critère d'origine exigeait moins de 12. C'est la teinte qui l'isole.
 THEME_BLEU = {
-    "file": "dialogue_theme_bleu.png",
+    "file": "dialogues/dialogue_theme_bleu.png",
     "dialogue": (100, 166, 575, 101),
     "replies": (116, 287, 558, 79),
     "expected": "Tu ne vois pas que je suis en patrouille ? Va-t'en !",
@@ -141,12 +141,12 @@ class FauxSortie:
 
 
 CLIQUETIS = {
-    "file": "dialogue_cliquetis.png",
+    "file": "dialogues/dialogue_cliquetis.png",
     "expected": "*Cliquetis* “Quetis,Cliquetis* *Cliquetis*-*Cliquecliquetis*, "
     "*Clicliquetis*",
 }
 ENROLEMENT = {
-    "file": "dialogue_enrolement.png",
+    "file": "dialogues/dialogue_enrolement.png",
     "expected": "Tiens donc, une âme neutre en ces lieux, Je te conseille de "
     "t'enrôler pour Brâkmar, le mal est toujours plus amusant. Si ça "
     "t'intéresse, ramène-moi 10 dagues de boisaille. Elles serviront à "
@@ -171,7 +171,7 @@ def texte_de(mots):
 
 
 KLAKO = {
-    "file": "dialogue_klako.png",
+    "file": "dialogues/dialogue_klako.png",
     "expected": "Bonjour Tryvia. Je suis Klako, un des meilleurs chasseurs "
     "de dragodindes de la région. Bienvenue !",
 }
@@ -180,7 +180,7 @@ KLAKO = {
 # Relevé en jeu chez Roukerol de Nerouz. La bulle et le bloc de réponses se
 # touchent : la morphologie les fond en un seul contour de hauteur 314, sous
 ROUKEROL = {
-    "file": "dialogue_roukerol.png",
+    "file": "dialogues/dialogue_roukerol.png",
     "expected": "Le bricolage, il y a ceux qui savent faire et qui aiment ça. "
     "Des gens comme moi, en somme. Il y a ceux qui ne savent pas faire, et "
     "qui n'aiment pas ça. Je peux le comprendre, chacun ses goûts. Et il y a "
@@ -196,7 +196,7 @@ ROUKEROL = {
 # ces panneaux permanents empêchaient. « dialogue »/« replies » sont au
 # format de « erase » (x, y, w, h), pour simuler la fermeture de la fenêtre.
 BWORKIDAIS = {
-    "file": "dialogue_bworkidais.png",
+    "file": "dialogues/dialogue_bworkidais.png",
     "expected": "Zog Zog à toû.",
     "dialogue": (1109, 333, 576, 102),
     "replies": (1125, 457, 559, 113),
@@ -211,10 +211,84 @@ BWORKIDAIS = {
 # bruit intra-ligne « _kd'à » subsiste — hors du périmètre de ce correctif),
 # non le texte à l'écran.
 BWORKNROLL = {
-    "file": "dialogue_bworknroll.png",
+    "file": "dialogues/dialogue_bworknroll.png",
     "expected": "Pour commencer des canines de Gobelin, des cheveux de Sadida "
     "et des os de Trooll. Voilà un scalpel qui te permettra de désosser un "
     "Trooll. Il y en a dans le donjon _kd'à côté ou dans la fosse.",
+}
+
+
+# Relevé en jeu chez L'Explorancienne, à l'échelle d'interface 100 % / police
+# « Moyen ». À cette échelle, la fermeture morphologique soude la bulle à son
+# bloc de réponses : le bloc n'est plus apparié d'emblée, il n'est admis que
+# par « splits_into_pair ». Ce dialogue narratif est peu ponctué (2 points sur
+# 28 mots, ratio 0,07 < MIN_PUNCTUATION_RATIO) : « reads_like_dialogue » le
+# rejetait, alors que la re-segmentation avait bel et bien prouvé la paire.
+# Verrouille le correctif : une preuve relationnelle (paire re-segmentée) fait
+# sauter le test de ponctuation, au même titre qu'un appariement d'emblée. Le
+# « - » de tête est du chrome OCR non retiré (bandeau ⋮ mal lu), hors périmètre
+# de ce correctif — « expected » reprend ce que l'OCR rend vraiment.
+EXPLORANCIENNE_100 = {
+    "file": "echelle/explorancienne_100_moyen.png",
+    "expected": "- Le moment est venu pour les Douziens de partir à la "
+    "découverte des mondes qui les entourent. L'exploration nourrit la "
+    "connaissance qui mène à la compréhension du Krosmoz.",
+}
+
+
+# Relevé en jeu chez Hazel Ementaire (plein écran fenêtré 2710×1539), dont la
+# réponse unique « S'en aller. » tient sur UNE seule ligne. Ce bloc de réponses
+# ne fait que ~36000 px² : sous « MIN_AREA », « find_bubbles » ne le rend jamais
+# comme contour, l'appariement ne le voit pas, et le dialogue passait inaperçu
+# (« pas-de-preuve », ocr=0ms). « find_reply_below » le rattrape en re-segmentant
+# la bande sous la bulle sans plancher d'aire. Verrouille ce cas : une réponse
+# MONO-ligne, séparée de sa bulle, doit être appariée comme une réponse
+# multi-lignes le serait. Le chat (coin bas-gauche) est masqué avant commit.
+HAZEL = {
+    "file": "dialogues/dialogue_hazel.png",
+    "expected": "La cité des Mercenaires est le premier endroit visité par les "
+    "âmes venues d'Incarnam. C'est un lieu où il se passe toujours quelque "
+    "chose ! Le commerce et l'artisanat sont florissants. Si tu as besoin de "
+    "t'équiper pour partir à l'aventure, tu devrais trouver ce qu'il te faut "
+    "sans trop de difficultés.",
+}
+
+
+# Le MÊME dialogue PNJ (« Gardien des Geôles d'Astrub »), capturé sous trois
+# thèmes de palettes distinctes (brakmar sombre, bonta clair, wabbit coloré)
+# en fenêtré 2710×1539. Ce dialogue n'a qu'UNE option de réponse : son bloc de
+# réponses ne fait que ~43800 px² (contre 54000-63000 pour un dialogue à
+# plusieurs réponses). Il restait au-dessus d'un plancher absolu de 40000, mais
+# un seuil d'aire alors rapporté à l'aire de l'image montait à 48000 px² avec la
+# taille de la fenêtre et l'écartait : plus d'appariement, dialogue inaperçu
+# dans TOUS les thèmes. Le seuil est désormais absolu (MIN_AREA), indépendant de
+# la fenêtre. Le texte lu est identique aux trois thèmes : la couleur du thème
+# n'influe pas sur l'OCR, seule la géométrie comptait. Le panneau de chat (coin
+# bas-gauche) est masqué en noir avant commit.
+THEME_GARDIEN = {
+    "files": [
+        "themes/brakmar.png",
+        "themes/bonta.png",
+        "themes/wabbit.png",
+        "themes/belladone.png",
+        "themes/emerald_mine.png",
+        "themes/gold_and_steel.png",
+        "themes/pandala.png",
+        "themes/sufokia.png",
+    ],
+    # Deux captures de thème restent versionnées mais HORS de ce test d'égalité :
+    #  - « tribute.png » montre un autre PNJ (« Ici sont enfermés les pires
+    #    chenapans… »), pas le dialogue de la clé à molette ;
+    #  - « unicorn.png » lit bien le bon dialogue, mais l'OCR y rend une
+    #    apostrophe droite (« qu'elle ») là où les autres rendent la courbe
+    #    (« qu'elle ») : la détection est correcte, seule l'égalité stricte de
+    #    texte échoue. Le test vérifie la détection, pas la fidélité d'apostrophe.
+    "expected": "Lorsque vous saisissez la clé à molette, un léger frémissement "
+    "vous parcourt. Une étrange énergie émane du métal, comme si l’objet "
+    "cherchait à réagir à votre présence. En la laissant tomber "
+    "accidentellement, vous remarquez qu’elle rebondit d’une manière étrange, "
+    "produisant un tintement métallique presque mélodieux. Une vieille relique "
+    "ou un artefact magique oublié ?",
 }
 
 

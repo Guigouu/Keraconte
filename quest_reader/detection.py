@@ -120,12 +120,36 @@ SUB_MIN_HEIGHT_RATIO = 0.06
 MIN_PUNCTUATION_RATIO = 0.08
 
 # Taille minimale d'un bloc candidat, avant tout appariement : ici aucune
-# bulle n'est encore connue, la seule référence d'échelle est l'image. Une
-# aire est un produit largeur×hauteur : elle se rapporte donc à l'aire de
-# l'image (facteur au carré avec la résolution), la largeur à la largeur.
-# Calibrés sur 2560×1350, où l'aire minimale valait 40000 px² et la largeur
-# 300 px : 40000 / (2560×1350) et 300 / 2560.
-MIN_AREA_RATIO = 40000 / (2560 * 1350)
+# bulle n'est encore connue.
+#
+# L'aire est laissée en pixels ABSOLUS, à dessein — au même titre que
+# MERGED_MIN_HEIGHT et les noyaux morphologiques. On l'avait rapportée à l'aire
+# de l'image (facteur au carré avec la résolution) ; c'était une erreur, que la
+# mesure a corrigée. Le point de bascule fut un bloc de réponses à OPTION
+# UNIQUE : chez le Gardien des Geôles (dossier themes/), la seule réponse
+# « Demander quand… » ne fait que ~43800 px² de contour, là où un dialogue à
+# plusieurs réponses en fait 54000 (brakmar) à 63000 (bworkidais). Ce plus
+# petit bloc légitime (43800) restait au-dessus d'un plancher absolu de 40000,
+# mais un seuil quadratique, gonflé à 48000 par la taille de la FENÊTRE
+# (2710×1539), l'écartait — et le dialogue passait inaperçu dans les 10 thèmes.
+# Un seuil absolu ne dépend pas de la fenêtre : marge saine (43800/40000 = 1,10),
+# et sur 67 captures d'interface AUCUN contour écarté par l'aire ne tombe dans
+# la bande [0,85 ; 1,10] — desserrer n'admet aucun panneau à la marge. Les deux
+# crops (theme_bleu 765×478, tokageko 721×401) passent aussi (44720, 82160).
+#
+# ⚠ Ce seuil absolu vaut pour la résolution de calibration (bulle 555-633 px de
+# large sur toutes nos captures, 2550-2710). Il n'est PAS prouvé « toute
+# résolution » : sur un rendu à une autre échelle (720p, 4K natif), la bulle
+# change de taille et l'absolu ne suit pas. Objectif utilisateur = toute
+# résolution, accessibilité ≥ 100 %, police > Petit. À caler avec une capture
+# 1920×1080 / 100 % : si la bulle y reste 555-633 px, l'UI est en pixels fixes
+# et l'absolu tient partout ; sinon il faut un proxy d'échelle de rendu.
+#
+# La largeur, elle, reste relative à la largeur d'image — non par théorie
+# (aucune mesure ne dit qu'elle suit l'échelle quand l'aire ne la suit pas),
+# mais faute de contre-exemple : ne pas y toucher sans mesure, les crops
+# (721/765 px) la rendent risquée. Calibrée sur 2560×1350 (largeur mini 300 px).
+MIN_AREA = 40000
 MIN_WIDTH_RATIO = 300 / 2560
 # Plancher de longueur du texte lu. Deux valeurs selon la preuve accumulée :
 # sans réponses appariées, le bloc n'est admis que sur sa hauteur ou sa
@@ -155,7 +179,18 @@ MAX_WHITE_RATIO = 0.15
 # reproduisent à moins de 6 % près les valeurs absolues d'origine (160, 40,
 # 60) sur les fixtures actuelles.
 REF_BUBBLE_WIDTH = 600
-MAX_REPLY_GAP_RATIO = 160 / REF_BUBBLE_WIDTH
+# L'écart toléré entre la base de la bulle et le haut de sa réponse. La valeur
+# héritée (160/600 ≈ 0,27) venait de la calibration absolue d'avant les
+# fixtures (cf. 3f422cb, « à 6 % près des valeurs d'origine ») : permissive par
+# héritage, non par une mesure. Or un vrai bloc de réponses COLLE à sa bulle,
+# tandis qu'un panneau d'interface place sa fausse « réponse » loin en dessous.
+# Mesuré (gap/largeur de bulle) sur tous les registres : 25 vrais dialogues de
+# -0,012 à 0,041 (réponses collées, chevauchement léger compris), faux positifs
+# d'interface de 0,089 à 0,202 — plus le HDV relevé en jeu à 0,166. Le seuil à
+# 0,06 tombe dans la bande vide entre les deux et écarte cinq des six faux
+# positifs restants (hdv, cosmétique, écran de fin de combat). Un panneau à
+# fausse bande collée (recettes) reste hors de portée du gap : cas isolé assumé.
+MAX_REPLY_GAP_RATIO = 0.06
 MAX_REPLY_OVERLAP_RATIO = 40 / REF_BUBBLE_WIDTH
 ALIGN_TOLERANCE_RATIO = 60 / REF_BUBBLE_WIDTH
 
@@ -257,9 +292,9 @@ def find_bubbles(frame):
     mask = cv2.morphologyEx(bubble_mask(frame), cv2.MORPH_CLOSE, CLOSE_KERNEL)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # Seuils de taille rapportés aux dimensions de l'image : une aire à son
-    # aire, une largeur à sa largeur, pour suivre la résolution de l'écran.
-    min_area = MIN_AREA_RATIO * width * height
+    # L'aire mini est absolue (une bulle ne grandit pas avec l'aire de
+    # l'écran, cf. MIN_AREA) ; la largeur mini suit la largeur de l'image.
+    min_area = MIN_AREA
     min_width = MIN_WIDTH_RATIO * width
     boxes = []
     for contour in contours:
@@ -269,6 +304,14 @@ def find_bubbles(frame):
         # L'interface de droite touche le bord ; le reste (chat compris)
         # est écarté par l'exigence d'un bloc de réponses apparié.
         if x + w > width * 0.99:
+            # Trace (silencieuse hors QR_DEBUG) : un blob assez grand écarté par
+            # le bord droit peut être une bulle SOUDÉE au décor jusqu'au bord —
+            # elle disparaît alors sans laisser de box, et le lecteur ne voit
+            # « rien » sans savoir pourquoi. Sert à mesurer ce cas en jeu.
+            _trace(
+                f"  contour ÉCARTÉ=bord-droit (y={y} x={x} w={w} h={h}) "
+                f"x+w={x + w} > {width * 0.99:.0f}"
+            )
             continue
         boxes.append((y, x, w, h))
 
@@ -309,12 +352,80 @@ def splits_into_pair(frame, box):
             continue
         parts.append((cy, cx, cw, ch))
     parts.sort()
-    # L'appariement est celui de « is_reply_block », inchangé : un bloc de
-    # réponses aligné, de largeur voisine, juste sous le texte.
+    # L'appariement est celui de « is_reply_block » : un bloc de réponses aligné,
+    # de largeur voisine, juste sous le texte. Un test de plus, propre à la
+    # re-segmentation : la réponse ne doit pas être PLUS HAUTE que la bulle.
+    #
+    # « is_reply_block » vérifie l'écart, l'alignement et la largeur — que la
+    # structure interne d'un panneau d'interface imite par construction (un
+    # en-tête étroit au-dessus d'une liste alignée de même largeur). Ce qui la
+    # trahit, c'est la hauteur : un vrai bloc de réponses (1 à 4 options) est
+    # toujours plus court que la bulle de dialogue qu'il suit ; la « réponse »
+    # d'un panneau est sa liste entière (destinations d'un zaap, table de l'hôtel
+    # des ventes), bien plus haute que son en-tête. Mesuré sur les registres :
+    # vrais dialogues à 0,38-0,72 (réponse/bulle), faux positifs d'interface à
+    # 1,70-14,23 — le seuil à 1 tombe dans une bande vide. L'invariant, et non un
+    # nombre ajusté : une réponse n'est jamais plus haute que la bulle.
     for above_index, above in enumerate(parts):
-        if any(is_reply_block(above, below) for below in parts[above_index + 1 :]):
-            return True
+        above_h = above[3]
+        for below in parts[above_index + 1 :]:
+            if is_reply_block(above, below) and below[3] <= above_h:
+                return True
     return False
+
+
+def find_reply_below(frame, bubble):
+    """Cherche le bloc de réponses juste SOUS une bulle validée, ou None.
+
+    « find_bubbles » écarte tout contour dont l'aire tombe sous « MIN_AREA » —
+    un plancher pensé pour les candidats-BULLES isolés, où aucune échelle n'est
+    encore connue. Mais une réponse à UNE seule ligne (« S'en aller. », relevée
+    chez Hazel Ementaire) fait ~36000 px² : sous ce plancher, elle ne devient
+    jamais un contour, l'appariement ne la voit pas, et le dialogue passe
+    inaperçu (« pas-de-preuve »). C'est une asymétrie : « splits_into_pair »,
+    lui, apparie une réponse courte FUSIONNÉE à sa bulle avec des seuils
+    seulement RELATIFS, sans plancher d'aire. Ce second passage étend la même
+    discipline au cas SÉPARÉ — la bulle est déjà prouvée, on ne fait que
+    chercher sa réponse en dessous, bornés par sa géométrie.
+
+    On re-segmente la bande sous la bulle (généreuse en largeur, pour ne pas
+    rogner un contour au bord et fausser sa boîte), on filtre les échardes en
+    proportion de la bulle, et l'on rend la première boîte qui passe
+    « is_reply_block ». Aucun plancher d'aire : c'est la preuve relationnelle,
+    et elle seule, qui admet le bloc — un panneau isolé n'en a pas.
+    """
+    by, bx, bw, bh = bubble
+    height, width = frame.shape[:2]
+    # Bande sous la bulle : de sa base jusqu'au plus grand écart toléré, plus
+    # une hauteur de réponse plausible. En largeur, la bulle élargie de la
+    # tolérance d'alignement de chaque côté.
+    max_gap = bw * MAX_REPLY_GAP_RATIO
+    align = bw * ALIGN_TOLERANCE_RATIO
+    top = by + bh
+    # Sous la base de la bulle : le plus grand écart toléré par is_reply_block,
+    # plus une hauteur de réponse plausible (une bulle de dialogue) au-delà.
+    bottom = min(height, int(top + max_gap + bh))
+    left = max(0, int(bx - align))
+    right = min(width, int(bx + bw + align))
+    if bottom <= top or right <= left:
+        return None
+    region = bubble_mask(frame[top:bottom, left:right])
+    contours, _ = cv2.findContours(
+        region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    candidates = []
+    for contour in contours:
+        cx, cy, cw, ch = cv2.boundingRect(contour)
+        # Échardes écartées en proportion de la bulle, jamais en pixels.
+        if cw < bw * SUB_MIN_WIDTH_RATIO or ch < bh * SUB_MIN_HEIGHT_RATIO:
+            continue
+        # Coordonnées ramenées au repère plein cadre, format (y, x, w, h).
+        candidates.append((cy + top, cx + left, cw, ch))
+    candidates.sort()
+    for candidate in candidates:
+        if is_reply_block(bubble, candidate):
+            return candidate
+    return None
 
 
 def find_dialog(frame):
@@ -359,19 +470,69 @@ def find_dialog_box(frame, boxes=None):
         )
         # Quand les deux blocs se touchent, la fermeture les fond en un seul :
         # la paire manque alors. On la rattrape en re-segmentant finement le
-        # bloc, ce qui rend la bulle et les réponses comme deux contours et
-        # rétablit l'appariement. La hauteur reste un pré-filtre bon marché,
-        # mais roukerol (314 px) passe sous son seuil : la re-segmentation
-        # tranche le cas où la hauteur ne suffit pas.
+        # bloc (« splits_into_pair »), ce qui rend la bulle et les réponses
+        # comme deux contours et rétablit l'appariement.
+        #
+        # SEULE la preuve RELATIONNELLE admet ici un bloc : appariement d'emblée
+        # (« replies is not None »), réponse mono-ligne trouvée sous la bulle
+        # (« find_reply_below »), ou paire retrouvée par re-segmentation
+        # (« splits_into_pair »). La hauteur, elle, ne prouvait rien : mesuré sur
+        # les registres (themes + dialogues + echelle), AUCUN vrai dialogue
+        # n'était admis par sa seule hauteur — tous passaient par l'une des trois
+        # preuves ci-dessus. En revanche cinq panneaux d'interface (compagnons,
+        # guilde, métiers, succès, un sort) atteignaient « h >= MERGED_MIN_HEIGHT »
+        # et étaient lus à tort. L'ancien « h >= MERGED or splits » est donc
+        # retiré : un bloc sans paire est désormais toujours écarté ici.
+        #
+        # « MERGED_MIN_HEIGHT » et « reads_like_dialogue » restent définis : le
+        # premier documente le seuil retiré, le second est le filet de secours
+        # (plus bas) pour un éventuel bloc admis sans preuve relationnelle —
+        # aujourd'hui aucun, mais le jeu de dialogues « appariables » s'agrandit
+        # à mesure qu'on le découvre (Hazel n'est appariée que depuis
+        # « find_reply_below »).
+        #
+        # « splits_into_pair » tourne inconditionnellement : ne pas l'« optimiser »
+        # derrière un pré-filtre de hauteur (son coût, bubble_mask sur la seule
+        # région, est négligeable face à l'OCR), sans quoi un bloc haut ET fusionné
+        # (L'Explorancienne à 100 %, h=435) échapperait à la re-segmentation.
+        # Une réponse à une seule ligne est trop petite pour survivre au
+        # plancher d'aire de « find_bubbles » : elle n'est donc pas dans
+        # « boxes », et l'appariement d'emblée ci-dessus l'a manquée. On la
+        # rattrape en re-segmentant la bande sous la bulle, sans plancher
+        # d'aire. Trouvée, elle devient un « replies » à part entière : le
+        # bloc suit alors le chemin apparié complet (drop_replies, plancher
+        # bas, saut de reads_like_dialogue), exactement comme un appariement
+        # d'emblée. NE PAS se contenter de « paired=True » sans poser
+        # « replies » : « drop_replies » tournerait sur un bloc sans réponses
+        # et le tronquerait au premier large blanc.
+        #
+        # « _origine » (silencieux hors QR_DEBUG) note LAQUELLE des trois preuves
+        # a admis le bloc : sert à trier les faux positifs d'interface restants
+        # par le chemin qui les laisse passer (split vs emblée).
+        _origine = "emblée" if replies is not None else None
         if replies is None:
-            merged = h >= MERGED_MIN_HEIGHT or splits_into_pair(
-                frame, (y, x, w, h)
-            )
-            if not merged:
+            replies = find_reply_below(frame, (y, x, w, h))
+            if replies is not None:
+                _origine = "below"
+        paired = replies is not None
+        if not paired:
+            paired = splits_into_pair(frame, (y, x, w, h))
+            if paired:
+                _origine = "split"
+            else:
+                # Trace par box (silencieuse hors QR_DEBUG) : le bloc n'a aucune
+                # preuve relationnelle, il est écarté. Sert à mesurer, sur un flux
+                # en jeu, la DISTRIBUTION des chemins d'une image à l'autre — un
+                # instantané ne montre pas la variance de la fusion morphologique.
+                _trace(f"  box (y={y} x={x} w={w} h={h}) PORTE=pas-de-preuve")
                 continue
         region = frame[y : y + h, x : x + w]
         white = (region > 200).all(2).mean()
         if not MIN_WHITE_RATIO <= white <= MAX_WHITE_RATIO:
+            _trace(
+                f"  box (y={y} x={x} w={w} h={h}) PORTE=white "
+                f"paired={paired} white={white:.4f}"
+            )
             continue
         # Pas de rognage : la boîte est parfois déjà serrée sur le texte,
         # et rogner amputerait le dialogue. Les icônes des coins sortent
@@ -395,22 +556,49 @@ def find_dialog_box(frame, boxes=None):
         _ocr_ms += (time.perf_counter() - _t1) * 1000
         words = read_words(data)
         # Sur un bloc fusionné, l'OCR ramène aussi les réponses du joueur :
-        # elles se détachent par un large blanc, pas par leur grammaire.
+        # elles se détachent par un large blanc, pas par leur grammaire. On les
+        # retire dès qu'il n'y a pas d'appariement D'EMBLÉE (« replies is
+        # None ») : même quand « splits_into_pair » a retrouvé la paire, l'OCR a
+        # bien lu le bloc entier, réponses comprises.
         if replies is None:
             words = drop_replies(words)
         # Le bandeau d'icônes du haut de bulle (⋮, ✕) sort en « ë - » au-dessus
         # du texte : inconditionnel (la bulle appariée n'est pas passée par
         # « drop_replies »), avant tout calcul en aval qu'il polluerait.
         words = drop_top_chrome(words)
-        # Un bloc admis sur sa seule hauteur peut être un panneau de
-        # l'interface : sans réponses appariées, rien ne l'a encore écarté.
-        if replies is None and not reads_like_dialogue(words):
+        # « reads_like_dialogue » n'écarte les panneaux d'interface que faute de
+        # preuve relationnelle. On ne le soumet qu'aux blocs admis SANS preuve
+        # (« not paired ») — filet de secours. On avait tenté de l'étendre au
+        # chemin « split » pour écarter le panneau Recettes (dernier faux
+        # positif) : la CI l'a infirmé. Le test repose sur un ratio de
+        # ponctuation calibré (0,08) sur UNE version de Tesseract ; une autre
+        # build décale d'un mot le décompte et fait basculer la décision. Marge
+        # d'un seul mot de chaque côté (Recettes 3/46, L'Explorancienne 3/33) :
+        # sur l'OCR de la CI, Recettes repassait ET le risque sur les vrais
+        # dialogues re-segmentés n'était même pas mesuré (tests OCR désélectionnés
+        # faute de « fra »). Contrairement aux seuils GÉOMÉTRIQUES (hauteur, écart,
+        # aire), déterministes sur une image figée, un seuil issu du TEXTE OCR ne
+        # se transporte pas d'une build à l'autre. Le panneau Recettes reste donc
+        # un faux positif connu (une étiquette, « Galet Solaire 150 »), assumé.
+        if not paired and not reads_like_dialogue(words):
+            _trace(
+                f"  box (y={y} x={x} w={w} h={h}) PORTE=like "
+                f"mots={len(words)} paired={paired}"
+            )
             continue
         text = clean(" ".join(word["text"] for word in words))
-        floor = MIN_CHARS if replies is None else MIN_CHARS_PAIRED
+        floor = MIN_CHARS_PAIRED if paired else MIN_CHARS
         if len(text) >= floor:
-            _trace(f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
+            _trace(
+                f"find_dialog_box: TEXTE | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s) "
+                f"| box=(y={y} x={x} w={w} h={h}) paired={paired} "
+                f"origine={_origine} reply={replies}"
+            )
             return text, (y, x, w, h)
+        _trace(
+            f"  box (y={y} x={x} w={w} h={h}) PORTE=floor "
+            f"paired={paired} len={len(text)} floor={floor}"
+        )
     _trace(f"find_dialog_box: RIEN | ocr={_ocr_ms:.0f}ms | {len(boxes)} boxe(s)")
     return None, None
 

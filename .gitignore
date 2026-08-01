@@ -3,9 +3,21 @@ __pycache__/
 *.pyc
 .pytest_cache/
 sample*.png
-# Sorties PyInstaller (bundle ~1 Go, jamais versionné).
+# Artefacts de build : sorties PyInstaller (bundle ~1 Go) et métadonnées
+# générées par « pip install -e ». Jamais versionnés.
 build/
 dist/
 *.spec.bak
-# Métadonnées générées par « pip install -e » (artefact, jamais versionné).
 *.egg-info/
+
+# Registres de captures réelles pour scorer la détection (must-not-read).
+# Volumineux et à chat NON masqué : gardés en local, jamais poussés. Ne sont
+# référencés par aucun test — seul le harnais de mesure les lit. Les captures
+# promues en fixtures de test sont masquées et rangées à part, sous
+# tests/fixtures/dialogues/ (celles-là SONT versionnées).
+#
+# themes/ et echelle/ ne sont PAS ignorés en bloc : ils contiennent des fixtures
+# must-read déjà versionnées et masquées. Les captures brutes qui y restent
+# (déposées pour mesure, chat non masqué) ne sont simplement pas ajoutées.
+tests/fixtures/hud/
+tests/fixtures/combats/

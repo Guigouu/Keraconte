@@ -30,7 +30,9 @@ from tests.helpers import (  # noqa: E402
     BWORKNROLL,
     CLIQUETIS,
     ENROLEMENT,
+    EXPLORANCIENNE_100,
     FIXTURES,
+    HAZEL,
     HERCULE,
     HERCULE_PERMUTE,
     IDS,
@@ -38,6 +40,7 @@ from tests.helpers import (  # noqa: E402
     ROUKEROL,
     SAMPLES,
     THEME_BLEU,
+    THEME_GARDIEN,
     TOKAGEKO,
     ecran,
     erase,
@@ -374,10 +377,38 @@ def test_drop_top_chrome_epargne_une_tete_majoritaire():
 
 
 @pytest.mark.parametrize(
-    "fichier", ["interface_hdv.png", "interface_hdv_liste.png"]
+    "fichier",
+    [
+        "dialogues/interface_hdv.png",
+        "dialogues/interface_hdv_liste.png",
+        # Panneau « Métiers » (h=836) : il était lu à tort par le seul chemin
+        # « hauteur seule » (« h >= MERGED_MIN_HEIGHT »), sans aucune preuve
+        # d'appariement. Mesuré sur les registres, ce chemin n'admettait AUCUN
+        # vrai dialogue (tous appariés) mais cinq panneaux d'interface : il a
+        # été retiré. Cette fixture verrouille ce retrait.
+        "dialogues/interface_metiers.png",
+        # Panneau « Zaap » : la re-segmentation (« splits_into_pair ») prenait
+        # son en-tête pour une bulle et la liste des destinations pour un bloc
+        # de réponses. Un vrai bloc de réponses n'est jamais plus haut que la
+        # bulle ; la liste, elle, l'est de loin (ratio 11 contre 0,4-0,7 pour un
+        # vrai dialogue). Cette fixture verrouille ce test de hauteur.
+        "dialogues/interface_zaap.png",
+        # Hôtel de vente : « find_reply_below » accrochait une bande d'interface
+        # LOIN sous le panneau comme une fausse réponse. Un vrai bloc de réponses
+        # COLLE à sa bulle (écart/largeur 0,04 au plus) ; ici l'écart valait 0,09
+        # et plus. Cette fixture verrouille le resserrage de MAX_REPLY_GAP_RATIO.
+        "dialogues/interface_hdv_achat.png",
+        # « interface_recettes.png » n'est PAS ici : ce panneau reste un faux
+        # positif connu (lit l'étiquette « Galet Solaire 150 »). Sa fausse réponse
+        # colle au panneau, hors de portée des tests géométriques (hauteur,
+        # écart) ; le seul signal qui le séparait — le ratio de ponctuation via
+        # « reads_like_dialogue » — dépend de la version de Tesseract et ne se
+        # transporte pas d'une build à l'autre (la CI l'a montré). La fixture
+        # reste versionnée comme cas ouvert, mais on ne l'affirme pas ignorée.
+    ],
 )
 def test_ignore_les_panneaux_d_interface(fichier):
-    """L'hôtel des ventes ne doit pas être lu.
+    """L'hôtel des ventes et les grands panneaux ne doivent pas être lus.
 
     Accepter un bloc sans réponses appariées, pour rattraper les bulles
     soudées à leurs choix, laissait aussi passer les panneaux d'interface :
@@ -435,6 +466,56 @@ def test_lit_un_dialogue_fondu_a_ses_reponses():
     paire, sans toucher au texte lu par l'OCR.
     """
     assert clean(find_dialog(load(ROUKEROL))) == ROUKEROL["expected"]
+
+
+@pytest.mark.ocr_fixture
+def test_lit_un_dialogue_narratif_peu_ponctue_re_segmente():
+    """Un dialogue peu ponctué, fondu à ses réponses, doit rester lu.
+
+    Relevé en jeu chez L'Explorancienne à l'échelle d'interface 100 %. Comme
+    chez Roukerol, la fermeture morphologique soude la bulle au bloc de
+    réponses : le bloc n'est admis que par « splits_into_pair », donc sur le
+    chemin non-apparié. Ce texte narratif est peu ponctué (ratio 0,07, sous
+    MIN_PUNCTUATION_RATIO) : « reads_like_dialogue » le rejetait, alors que la
+    re-segmentation avait retrouvé une paire — une preuve relationnelle, de même
+    nature qu'un appariement d'emblée. Le correctif ne soumet ce test qu'aux
+    blocs admis sur leur SEULE hauteur, où rien n'a prouvé le dialogue.
+    """
+    assert clean(find_dialog(load(EXPLORANCIENNE_100))) == EXPLORANCIENNE_100["expected"]
+
+
+@pytest.mark.ocr_fixture
+@pytest.mark.parametrize("fichier", THEME_GARDIEN["files"])
+def test_lit_un_dialogue_quel_que_soit_le_theme(fichier):
+    """Le même dialogue doit être lu sous tous les thèmes du jeu.
+
+    Capturé en fenêtré 2710×1539 sous plusieurs thèmes de palettes distinctes.
+    À cette résolution, le bloc de réponses (~43800 px²) passait sous un seuil
+    d'aire alors rapporté à l'aire de l'image (48000 px²) : écarté, plus
+    d'appariement, le dialogue passait inaperçu — et ce dans les DIX thèmes, le
+    seuil ne dépendant que de la géométrie, pas de la couleur. Le seuil d'aire
+    est désormais absolu (MIN_AREA), une bulle ne grandissant pas avec l'aire
+    de l'écran. Le texte attendu est identique à tous les thèmes, ce qui vérifie
+    au passage que la couleur du thème n'influe pas sur l'OCR.
+    """
+    frame = cv2.imread(str(FIXTURES / fichier))
+    assert frame is not None, f"fixture illisible : {fichier}"
+    assert clean(find_dialog(frame)) == THEME_GARDIEN["expected"]
+
+
+@pytest.mark.ocr_fixture
+def test_lit_un_dialogue_a_reponse_mono_ligne():
+    """Un dialogue dont la réponse tient sur UNE ligne doit être lu.
+
+    Relevé en jeu chez Hazel Ementaire : la réponse unique « S'en aller. » fait
+    ~36000 px², sous MIN_AREA. « find_bubbles » ne la rend donc jamais comme
+    contour, l'appariement d'emblée la manque, et « splits_into_pair » (qui ne
+    regarde que la région de la bulle) ne la voit pas non plus : le dialogue
+    passait inaperçu. « find_reply_below » re-segmente la bande sous la bulle
+    sans plancher d'aire et rétablit l'appariement. Une réponse mono-ligne
+    séparée est ainsi appariée comme le serait une réponse multi-lignes.
+    """
+    assert clean(find_dialog(load(HAZEL))) == HAZEL["expected"]
 
 
 @pytest.mark.ocr_fixture

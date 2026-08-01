@@ -75,11 +75,11 @@ SAME_WORDS_GAP = 0.6
 def clearest(*variants):
     """Choisit la meilleure lecture parmi plusieurs images du même texte.
 
-    La complétude prime : Dofus affiche ses répliques progressivement, et
-    une variante plus courte est une phrase à moitié écrite, pas une phrase
-    mieux lue. Trier d'abord sur la propreté faisait préférer « ...apaiser
-    le molosse. » à la réplique entière, dont la fin n'était alors jamais
-    dite.
+    La complétude prime : l'OCR rend parfois une variante tronquée (dernière
+    ligne ratée) avant la complète — le jeu, lui, affiche la bulle d'un coup.
+    Une variante plus courte est donc une phrase mal lue, pas une phrase moins
+    avancée. Trier d'abord sur la propreté faisait préférer « ...apaiser le
+    molosse. » à la réplique entière, dont la fin n'était alors jamais dite.
 
     À longueur voisine, on départage sur le bruit : l'OCR rend « longtemps »
     tantôt juste, tantôt « —L|nngremps », et ces caractères-là n'existent pas
