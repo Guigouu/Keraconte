@@ -120,7 +120,7 @@ jobs:
           set -euo pipefail
           exe=./dist/keraconte/keraconte
           # OCR : le texte doit sortir (tesseract + tessdata + libs du bundle).
-          ocr="$("$exe" --test tests/fixtures/dialogue_brakmar.png)"
+          ocr="$("$exe" --test tests/fixtures/dialogues/dialogue_brakmar.png)"
           echo "OCR: $ocr"
           case "$ocr" in *forgemage*) ;; *) echo "OCR muet/faux"; exit 1;; esac
           # TTS : la synthèse des 2 voix doit aboutir (espeak-ng-data du bundle).
@@ -138,7 +138,7 @@ jobs:
           # on vérifie $LASTEXITCODE ET le contenu de sortie à chaque appel,
           # sinon un exe OCR-muet ou sans voix passerait en vert.
           $exe = ".\dist\keraconte\keraconte.exe"
-          $ocr = & $exe --test tests/fixtures/dialogue_brakmar.png
+          $ocr = & $exe --test tests/fixtures/dialogues/dialogue_brakmar.png
           Write-Host "OCR: $ocr"
           if ($LASTEXITCODE -ne 0) { throw "OCR exit $LASTEXITCODE" }
           if ($ocr -notmatch "forgemage") { throw "OCR muet/faux : $ocr" }
