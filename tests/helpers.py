@@ -1,4 +1,4 @@
-"""Helpers et fixtures partagés par les tests du package quest_reader.
+"""Helpers et fixtures partagés par les tests du package keraconte.
 
 Séparés des tests eux-mêmes pour que le découpage en miroir des modules ne
 duplique pas ce socle : les captures, les doublures et les fabriques de mots
@@ -11,9 +11,9 @@ from unittest import mock
 
 import cv2
 
-from quest_reader import Reader, clean
-from quest_reader.detection import find_bubbles
-from quest_reader.speed import Vitesse
+from keraconte import Reader, clean
+from keraconte.detection import find_bubbles
+from keraconte.speed import Vitesse
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
@@ -108,7 +108,7 @@ def images(reader, textes, bulle_presente=False):
         frame = ecran(texte is not None or bulle_presente)
         resultat = (texte, boite) if texte is not None else (None, None)
         with mock.patch(
-            "quest_reader.reader.find_dialog_box", return_value=resultat
+            "keraconte.reader.find_dialog_box", return_value=resultat
         ):
             reader.handle(frame)
     return [appel.args[0] for appel in reader.speaker.say.call_args_list]

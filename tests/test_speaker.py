@@ -1,4 +1,4 @@
-"""Tests du fil de synthèse (quest_reader.speaker)."""
+"""Tests du fil de synthèse (keraconte.speaker)."""
 
 import pathlib
 import sys
@@ -6,8 +6,8 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.playback import playback  # noqa: E402
-from quest_reader.speaker import Speaker  # noqa: E402
+from keraconte.playback import playback  # noqa: E402
+from keraconte.speaker import Speaker  # noqa: E402
 
 
 def test_le_speaker_s_arrete_sans_vider_sa_file():
@@ -90,8 +90,8 @@ def test_un_nouveau_dialogue_coupe_le_precedent():
 def test_un_nouveau_dialogue_leve_la_pause():
     """Une bascule vers un nouveau dialogue défige la voix (design : la
     pause « saute » quand un nouveau dialogue reprend le dessus)."""
-    from quest_reader.playback import player_state
-    from quest_reader.speaker import Speaker
+    from keraconte.playback import player_state
+    from keraconte.speaker import Speaker
 
     player_state.pause()
     try:
@@ -109,8 +109,8 @@ def test_un_nouveau_dialogue_leve_la_pause():
 def test_fermer_le_dialogue_ne_leve_pas_la_pause():
     """silence() coupe la voix mais ne défige pas : fermer une fenêtre
     pendant une pause ne doit pas relancer une lecture."""
-    from quest_reader.playback import player_state
-    from quest_reader.speaker import Speaker
+    from keraconte.playback import player_state
+    from keraconte.speaker import Speaker
 
     player_state.pause()
     try:

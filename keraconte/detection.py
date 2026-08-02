@@ -14,8 +14,8 @@ import numpy as np
 import pytesseract
 from PIL import Image
 
-from quest_reader.text import clean
-from quest_reader.trace import trace as _trace
+from keraconte.text import clean
+from keraconte.trace import trace as _trace
 
 
 def configurer_tesseract():

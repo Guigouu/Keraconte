@@ -8,7 +8,7 @@ import os
 
 import dbus
 
-TOKEN_FILE = os.path.expanduser("~/.cache/quest-reader/restore-token")
+TOKEN_FILE = os.path.expanduser("~/.cache/keraconte/restore-token")
 
 
 def forget_token():

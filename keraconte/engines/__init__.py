@@ -57,9 +57,9 @@ class Engine(abc.ABC):
         """
 
 
-from quest_reader.engines.kokoro import KokoroEngine  # noqa: E402
-from quest_reader.engines.piper import PiperEngine  # noqa: E402
-from quest_reader.engines.xtts import XttsEngine  # noqa: E402
+from keraconte.engines.kokoro import KokoroEngine  # noqa: E402
+from keraconte.engines.piper import PiperEngine  # noqa: E402
+from keraconte.engines.xtts import XttsEngine  # noqa: E402
 
 
 def check_xtts(args):

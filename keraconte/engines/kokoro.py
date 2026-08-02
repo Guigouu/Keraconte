@@ -1,8 +1,8 @@
 """Moteur Kokoro : une seule voix française, sur le processeur."""
 
-from quest_reader.engines import KOKORO_MODEL, KOKORO_VOICES, Engine
-from quest_reader.playback import play_wave, wav_temporaire
-from quest_reader.text import pronounce, speakable
+from keraconte.engines import KOKORO_MODEL, KOKORO_VOICES, Engine
+from keraconte.playback import play_wave, wav_temporaire
+from keraconte.text import pronounce, speakable
 
 
 class KokoroEngine(Engine):

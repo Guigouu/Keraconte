@@ -1,4 +1,4 @@
-"""Tests de la boucle de lecture (quest_reader.reader).
+"""Tests de la boucle de lecture (keraconte.reader).
 
 Pilotent un « Reader » nu — moteur et capture doublés — image par image, pour
 vérifier l'accumulation des variantes, la coupure et la relecture.
@@ -9,9 +9,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader import Reader  # noqa: E402
-from quest_reader.speed import Vitesse  # noqa: E402
-from quest_reader.text import clean  # noqa: E402
+from keraconte import Reader  # noqa: E402
+from keraconte.speed import Vitesse  # noqa: E402
+from keraconte.text import clean  # noqa: E402
 from unittest import mock  # noqa: E402
 
 from tests.helpers import (  # noqa: E402
@@ -191,7 +191,7 @@ def test_la_fermeture_coupe_malgre_le_chat_et_la_barre():
     assert reader.last_box is not None
     # Images 2-3 : fenêtre fermée, OCR muet, mais chat et barre subsistent.
     with mock.patch(
-        "quest_reader.reader.find_dialog_box", return_value=(None, None)
+        "keraconte.reader.find_dialog_box", return_value=(None, None)
     ):
         reader.handle(ferme)
         reader.handle(ferme)
@@ -209,7 +209,7 @@ def test_un_ocr_muet_sur_la_vraie_bulle_ne_coupe_pas():
 
     reader.handle(ouvert)
     with mock.patch(
-        "quest_reader.reader.find_dialog_box", return_value=(None, None)
+        "keraconte.reader.find_dialog_box", return_value=(None, None)
     ):
         reader.handle(ouvert)
         reader.handle(ouvert)
@@ -229,7 +229,7 @@ def test_la_coupure_oublie_la_place_de_la_bulle():
 
     reader.handle(ouvert)
     with mock.patch(
-        "quest_reader.reader.find_dialog_box", return_value=(None, None)
+        "keraconte.reader.find_dialog_box", return_value=(None, None)
     ):
         reader.handle(ferme)
         reader.handle(ferme)  # coupure ici
@@ -263,7 +263,7 @@ def test_une_bulle_qui_revient_annule_le_decompte():
 
 def test_arrete_ignore_les_images():
     """Stoppé, le lecteur n'analyse plus : aucun dialogue n'est dit."""
-    from quest_reader.playback import player_state
+    from keraconte.playback import player_state
 
     reader = lecteur_nu()
     player_state.stop()
@@ -277,7 +277,7 @@ def test_arrete_ignore_les_images():
 def test_en_pause_continue_d_analyser():
     """En pause, l'analyse tourne : un nouveau dialogue est bien détecté
     (c'est lui qui, via Speaker.say, lèvera la pause)."""
-    from quest_reader.playback import player_state
+    from keraconte.playback import player_state
 
     reader = lecteur_nu()
     player_state.pause()

@@ -17,7 +17,7 @@ import dbus.mainloop.glib  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-from quest_reader.capture import ScreenCast, forget_token  # noqa: E402
+from keraconte.capture import ScreenCast, forget_token  # noqa: E402
 
 
 class LinuxCapture:

@@ -3,9 +3,9 @@
 import time
 import wave
 
-from quest_reader.engines import Engine
-from quest_reader.playback import play_wave, playback, wav_temporaire
-from quest_reader.text import pronounce, speakable, split_sentences
+from keraconte.engines import Engine
+from keraconte.playback import play_wave, playback, wav_temporaire
+from keraconte.text import pronounce, speakable, split_sentences
 
 
 class PiperEngine(Engine):

@@ -1,4 +1,4 @@
-# Quest Reader — résultats de validation (Dofus)
+# Kéraconte — résultats de validation (Dofus)
 
 Environnement : CachyOS, KDE Plasma, **Wayland natif**, Python 3.14, venv `--system-site-packages`.
 

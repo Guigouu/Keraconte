@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Spec PyInstaller du fat exec quest-reader (Windows + Linux).
+"""Spec PyInstaller du fat exec keraconte (Windows + Linux).
 
 UNE seule spec, paramétrée par « sys.platform » : le layout à poser sous
 « sys._MEIPASS » est le même contrat sur les deux OS (le code de résolution est
@@ -8,7 +8,7 @@ libs diffèrent.
 
 Mode onedir (pas onefile) : le payload embarqué pèse ~0,5-1 Go ; onefile le
 ré-extrairait dans un dossier temporaire à CHAQUE lancement (démarrage lent),
-tandis que onedir fait de « dist/quest-reader/ » la racine « _MEIPASS » — le
+tandis que onedir fait de « dist/keraconte/ » la racine « _MEIPASS » — le
 code de résolution (detection.configurer_tesseract, engines._racine_donnees)
 la lit telle quelle, démarrage instantané.
 
@@ -36,7 +36,7 @@ from PyInstaller.utils.hooks import collect_data_files
 RACINE = Path(SPECPATH).resolve().parent
 
 WINDOWS = sys.platform == "win32"
-EXE_NOM = "quest-reader"
+EXE_NOM = "keraconte"
 
 # Les DEUX voix du comportement par défaut (cf. design) : tom pour le PNJ,
 # siwis pour le narrateur d'actions entre astérisques. Chaque voix = .onnx +
@@ -187,15 +187,15 @@ EXCLUDES_LOURDS = [
 ]
 
 a = Analysis(
-    [str(RACINE / "quest_reader" / "__main__.py")],
+    [str(RACINE / "keraconte" / "__main__.py")],
     pathex=[str(RACINE)],
     binaries=binaries,
     datas=datas,
-    hiddenimports=["quest_reader.capture_mss", "quest_reader.capture_factory"],
+    hiddenimports=["keraconte.capture_mss", "keraconte.capture_factory"],
     hookspath=[],
     runtime_hooks=runtime_hooks,
     excludes=EXCLUDES_LOURDS
-    + (["quest_reader.capture_linux"] if WINDOWS else []),
+    + (["keraconte.capture_linux"] if WINDOWS else []),
     noarchive=False,
 )
 

@@ -9,7 +9,7 @@ importable pour les tests même hors contexte Qt, et Qt est une dépendance
 lourde qu'on ne charge qu'au lancement de l'interface.
 """
 
-from quest_reader.state import Etat
+from keraconte.state import Etat
 
 # Bornes de l'échelle de taille de la barre, comme la vitesse a MIN/MAX. À
 # 1.0 la barre est à sa taille naturelle ; on descend un peu (0.8) et on monte

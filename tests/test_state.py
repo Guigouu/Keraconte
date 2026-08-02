@@ -1,4 +1,4 @@
-"""Tests de l'état de lecture partagé (quest_reader.state)."""
+"""Tests de l'état de lecture partagé (keraconte.state)."""
 
 import pathlib
 import sys
@@ -6,7 +6,7 @@ import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.state import Etat, PlayerState  # noqa: E402
+from keraconte.state import Etat, PlayerState  # noqa: E402
 
 
 def test_depart_actif():

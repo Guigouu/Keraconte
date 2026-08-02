@@ -9,8 +9,8 @@ import queue
 import sys
 import threading
 
-from quest_reader.playback import playback, player_state
-from quest_reader.text import split_narration
+from keraconte.playback import playback, player_state
+from keraconte.text import split_narration
 
 
 class Speaker(threading.Thread):

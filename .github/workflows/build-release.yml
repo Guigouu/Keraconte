@@ -1,6 +1,6 @@
 name: build-release
 
-# Construit le fat exec quest-reader (onedir PyInstaller) pour Windows et Linux.
+# Construit le fat exec keraconte (onedir PyInstaller) pour Windows et Linux.
 # PyInstaller ne cross-compile pas : chaque OS construit SON propre exécutable.
 # Déclenché sur tag « v* » (attache alors les archives à une Release) ou à la
 # main via « workflow_dispatch » (pour éprouver le build sans poser de tag).
@@ -106,7 +106,7 @@ jobs:
           pip install -e ".[build]"
 
       - name: PyInstaller
-        run: pyinstaller --clean --noconfirm packaging/quest-reader.spec
+        run: pyinstaller --clean --noconfirm packaging/keraconte.spec
 
       # --- Fumée : l'exe FIGÉ OCRise ET parle (les 2 voix) --------------------
       # Le seul signal automatique que le bundle n'est pas silencieusement muet
@@ -118,7 +118,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          exe=./dist/quest-reader/quest-reader
+          exe=./dist/keraconte/keraconte
           # OCR : le texte doit sortir (tesseract + tessdata + libs du bundle).
           ocr="$("$exe" --test tests/fixtures/dialogue_brakmar.png)"
           echo "OCR: $ocr"
@@ -137,7 +137,7 @@ jobs:
           # PowerShell ne fait PAS échouer une étape sur un exit code natif :
           # on vérifie $LASTEXITCODE ET le contenu de sortie à chaque appel,
           # sinon un exe OCR-muet ou sans voix passerait en vert.
-          $exe = ".\dist\quest-reader\quest-reader.exe"
+          $exe = ".\dist\keraconte\keraconte.exe"
           $ocr = & $exe --test tests/fixtures/dialogue_brakmar.png
           Write-Host "OCR: $ocr"
           if ($LASTEXITCODE -ne 0) { throw "OCR exit $LASTEXITCODE" }
@@ -151,20 +151,20 @@ jobs:
       - name: Archiver le bundle (Linux)
         if: runner.os == 'Linux'
         run: |
-          tar -C dist -czf quest-reader-linux-x64.tar.gz quest-reader
+          tar -C dist -czf keraconte-linux-x64.tar.gz keraconte
 
       - name: Archiver le bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/quest-reader -DestinationPath quest-reader-windows-x64.zip
+        run: Compress-Archive -Path dist/keraconte -DestinationPath keraconte-windows-x64.zip
 
       - name: Uploader l'artefact
         uses: actions/upload-artifact@v4
         with:
-          name: quest-reader-${{ runner.os }}
+          name: keraconte-${{ runner.os }}
           path: |
-            quest-reader-*.tar.gz
-            quest-reader-*.zip
+            keraconte-*.tar.gz
+            keraconte-*.zip
           if-no-files-found: error
 
       # Sur tag « v* » : attacher les archives à la Release GitHub.
@@ -173,5 +173,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            quest-reader-*.tar.gz
-            quest-reader-*.zip
+            keraconte-*.tar.gz
+            keraconte-*.zip
