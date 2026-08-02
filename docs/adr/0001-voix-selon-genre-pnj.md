@@ -131,7 +131,7 @@ Règles de flux :
 | B. Accords grammaticaux seuls | Insuffisant | Mesuré : 0 des 4 dialogues d'origine n'en contient ; gardé en appoint (signal 2) |
 | C. Lexique de métiers/titres genrés | Retenue (signal 1) | Présent dans les fixtures réelles (« chasseur », « L'Explorancienne », « Gardien des Geôles ») ; déterministe, auditable, coût nul |
 | D. Classification visuelle du PNJ **à l'écran** (vision, runtime) | Rejetée | Aucune donnée étiquetée, variance forte (thèmes, zoom, angle), coût d'entretien sans commune mesure avec le besoin |
-| D′. Classification visuelle des **skins scrappés**, hors ligne | Source complémentaire de la table | Les viewers communautaires rendent le skin par id de PNJ (p. ex. skin.souff.fr/npc/`id`) : classables hors ligne, avec revue humaine, pour les seules entrées sans champ `gender` fiable. Inutile pour la masse (le champ existe, vérifié) ; et beaucoup de PNJ — démons, créatures, objets parlants — n'ont pas de genre lisible sur l'image : l'abstention s'applique là aussi |
+| D′. Classification visuelle des **skins scrappés**, hors ligne | Rejetée — rendue inutile | Envisagée comme complément de la table (les viewers communautaires rendent le skin par id, p. ex. skin.souff.fr/npc/`id`), retirée à la vérification : le champ `gender` couvre la masse des PNJ, et là où il serait douteux — démons, créatures, objets parlants — l'image l'est encore davantage. La bonne réponse y est l'abstention, pas un étiquetage visuel. À ne rouvrir que si la génération révélait un lot d'entrées sans genre exploitable |
 | E. Assignation manuelle par le joueur | Écartée comme mécanisme principal | Contraire au parti pris du README (« aucune sélection manuelle ») ; reste une échappatoire envisageable plus tard, hors de cette ADR |
 | F. Interroger un moteur de recherche ou un service **au runtime** | Rejetée net | Le runtime est hors ligne par principe : le contenu de l'écran ne sort pas de la machine ; s'ajoutent latence, fragilité (site indisponible = voix qui change), et dépendance de comportement à un tiers |
 
@@ -164,14 +164,9 @@ main par le mainteneur — jamais en CI, jamais au runtime :
 - **Ce qui embarque** : des *empreintes* de répliques (`fingerprint`, non
   réversibles vers le texte) et des noms associés à un genre, avec la
   provenance (source, date, version du jeu, origine de chaque entrée :
-  donnée / visuel / manuel). On n'embarque **pas** les textes de dialogue
-  du jeu eux-mêmes : la table est un index de faits, pas une copie de
-  contenu.
-- **Complément visuel** (option D′) : pour les seules entrées sans `gender`
-  fiable, classification hors ligne du skin rendu par le viewer
-  communautaire, **revue humaine systématique** avant d'entrer dans la
-  table. Un démon ailé n'a pas de genre lisible sur l'image : l'abstention
-  vaut aussi pour l'étiqueteur.
+  donnée / correction manuelle). On n'embarque **pas** les textes de
+  dialogue du jeu eux-mêmes : la table est un index de faits, pas une copie
+  de contenu.
 - **Tenue** : cadence de collecte polie (cache local, débit limité),
   conditions d'utilisation de la source vérifiées avant d'embarquer, et
   procédure de régénération documentée — la table se périme à chaque mise à
@@ -234,7 +229,7 @@ et 4 :
 - `api.dofusdb.fr/npcs` — champs `gender`, `name`, `dialogMessages`
   vérifiés le 2026-08-03 (id 3223 : `gender: 0` ; « Hazel Ementaire »,
   id 4313 : `gender: 1`).
-- `skin.souff.fr/npc/<id>` — viewer communautaire de skins, source du
-  complément visuel D′ (rendu client-side : passer par son API ou les
-  assets, pas par le HTML).
+- `skin.souff.fr/npc/<id>` — viewer communautaire de skins ; sert ici de
+  contre-mesure documentée (divergence des ids entre miroirs), pas de
+  source de la table.
 - ADR-0002 (catalogue de voix : affectation des canaux).
