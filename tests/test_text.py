@@ -1,4 +1,4 @@
-"""Tests du nettoyage et de la comparaison de texte (quest_reader.text)."""
+"""Tests du nettoyage et de la comparaison de texte (keraconte.text)."""
 
 import pathlib
 import sys
@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.text import (  # noqa: E402
+from keraconte.text import (  # noqa: E402
     clean,
     pronounce,
     same_dialog,

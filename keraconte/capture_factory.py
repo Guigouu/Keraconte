@@ -3,7 +3,7 @@
 Ce module NE doit importer aucune dépendance spécifique à un OS au niveau
 module — c'est lui qui casse la chaîne d'import : « reader.py » et
 « __init__.py » ne tirent plus gi/dbus. L'import du backend est PARESSEUX,
-fait dans la branche correspondante, pour qu'importer quest_reader sur une
+fait dans la branche correspondante, pour qu'importer keraconte sur une
 plateforme sans python-gobject/dbus (Windows, macOS) réussisse.
 """
 
@@ -19,11 +19,11 @@ def make_capture(on_frame, args, on_stop=None):
     demander_reselection.
     """
     if sys.platform.startswith("linux"):
-        from quest_reader.capture_linux import LinuxCapture
+        from keraconte.capture_linux import LinuxCapture
 
         return LinuxCapture(on_frame, args, on_stop)
     if sys.platform in ("win32", "darwin"):
-        from quest_reader.capture_mss import MssCapture
+        from keraconte.capture_mss import MssCapture
 
         return MssCapture(on_frame, args, on_stop)
     raise NotImplementedError(

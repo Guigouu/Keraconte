@@ -16,7 +16,7 @@ import wave
 
 import numpy as np
 
-from quest_reader.state import PlayerState
+from keraconte.state import PlayerState
 
 
 TRANCHE_MS = 20  # durée d'une tranche : compromis latence de pause / surcoût.

@@ -1,4 +1,4 @@
-# Quest Reader
+# Kéraconte
 
 Lit à voix haute les dialogues de PNJ de Dofus, en français.
 
@@ -37,7 +37,7 @@ n'y a pas d'extra à installer. Tesseract doit être présent : soit dans le
 
 ### Exécutable autonome
 
-Une spec PyInstaller (`packaging/quest-reader.spec`, extra `[build]`) empaquette
+Une spec PyInstaller (`packaging/keraconte.spec`, extra `[build]`) empaquette
 tesseract, les données `fra` et les voix Piper dans un exécutable unique. Un
 workflow GitHub Actions le construit pour Windows et Linux sur les tags `v*`
 (ou à la demande via `workflow_dispatch`). Ces exécutables n'ont pas encore
@@ -46,7 +46,7 @@ workflow GitHub Actions le construit pour Windows et Linux sur les tags `v*`
 ## Utilisation
 
 ```bash
-.venv/bin/python -m quest_reader
+.venv/bin/python -m keraconte
 ```
 
 Sous Linux, au premier lancement, KDE demande quel écran partager.
@@ -84,7 +84,7 @@ Aucun ne l'emporte partout : à essayer selon ce qu'on préfère entendre.
 | Timbre | plus naturel | un peu robotique | le plus naturel |
 
 ```bash
-.venv/bin/python -m quest_reader --engine kokoro
+.venv/bin/python -m keraconte --engine kokoro
 ```
 
 Kokoro tourne sur le processeur, à dessein : la carte graphique reste
@@ -107,7 +107,7 @@ secondes de parole claire suffisent. Deux extraits sont exigés : l'un pour
 le PNJ, l'autre pour les didascalies.
 
 ```bash
-.venv/bin/python -m quest_reader --engine xtts \
+.venv/bin/python -m keraconte --engine xtts \
   --voice-sample ~/voix/pnj.wav --narration-sample ~/voix/didascalies.wav
 ```
 
@@ -267,5 +267,5 @@ associations. La seule chose interdite est d'en tirer un produit commercial ou
 de le vendre. Ce n'est donc pas « open source » au sens strict de l'OSI (qui
 exige d'autoriser aussi l'usage commercial), mais du *source-available*.
 
-Quest Reader est un outil non officiel, sans lien avec Ankama ; « Dofus » est
+Kéraconte est un outil non officiel, sans lien avec Ankama ; « Dofus » est
 une marque d'Ankama.

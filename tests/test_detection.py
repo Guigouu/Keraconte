@@ -16,14 +16,14 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.detection import (  # noqa: E402
+from keraconte.detection import (  # noqa: E402
     drop_replies,
     drop_top_chrome,
     find_dialog,
     keep_word,
     reads_like_dialogue,
 )
-from quest_reader.text import clean, same_dialog  # noqa: E402
+from keraconte.text import clean, same_dialog  # noqa: E402
 from tests.helpers import (  # noqa: E402
     BRAKMAR,
     BWORKIDAIS,

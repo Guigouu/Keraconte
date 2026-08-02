@@ -59,8 +59,8 @@ def _faux_mss(largeur=64, hauteur=48, nb_ecrans=2):
     return module, grabs
 
 
-def test_import_quest_reader_sans_gi_ni_dbus():
-    """« import quest_reader » doit réussir quand gi et dbus sont absents.
+def test_import_keraconte_sans_gi_ni_dbus():
+    """« import keraconte » doit réussir quand gi et dbus sont absents.
 
     C'est le verrou du portage : reader.py et __init__.py tiraient gi/dbus au
     niveau module, donc importer le paquet échouait sur Windows/macOS et la
@@ -71,18 +71,18 @@ def test_import_quest_reader_sans_gi_ni_dbus():
     sauvegarde = dict(sys.modules)
     try:
         for name in list(sys.modules):
-            if name.startswith("quest_reader") or name in ("gi", "dbus"):
+            if name.startswith("keraconte") or name in ("gi", "dbus"):
                 del sys.modules[name]
         # None dans sys.modules force un ImportError à l'import (comme absent).
         sys.modules["gi"] = None
         sys.modules["dbus"] = None
 
-        paquet = importlib.import_module("quest_reader")
+        paquet = importlib.import_module("keraconte")
         assert hasattr(paquet, "Reader")
         # reader.py lui-même ne doit tirer aucun des deux.
-        importlib.import_module("quest_reader.reader")
+        importlib.import_module("keraconte.reader")
         # La factory non plus (elle importe le backend paresseusement).
-        importlib.import_module("quest_reader.capture_factory")
+        importlib.import_module("keraconte.capture_factory")
     finally:
         sys.modules.clear()
         sys.modules.update(sauvegarde)
@@ -94,7 +94,7 @@ def test_reader_module_ne_reference_ni_gi_ni_dbus():
     Le test d'import ci-dessus attrape la régression à l'exécution ; celui-ci
     la pointe à la source, plus lisible en cas d'échec.
     """
-    import quest_reader.reader as reader_mod
+    import keraconte.reader as reader_mod
 
     source = pathlib.Path(reader_mod.__file__).read_text(encoding="utf-8")
     for interdit in ("import gi", "import dbus", "gi.repository", "Gst."):
@@ -110,7 +110,7 @@ def test_qr_tesseract_prime_sur_le_path():
     Sous Windows l'installeur ne touche pas au PATH : cette variable est
     l'échappatoire pour désigner le binaire. On vérifie qu'elle prend le pas.
     """
-    import quest_reader.detection as detection
+    import keraconte.detection as detection
 
     ancien = detection.pytesseract.pytesseract.tesseract_cmd
     try:
@@ -133,7 +133,7 @@ def test_les_chemins_de_voix_sont_natifs_par_os():
     """
     import platformdirs
 
-    from quest_reader.engines import KOKORO_DIR, VOICES
+    from keraconte.engines import KOKORO_DIR, VOICES
 
     racine = pathlib.Path(platformdirs.user_data_dir(appname=False))
     assert VOICES == racine / "piper-voices"
@@ -155,7 +155,7 @@ def test_mss_convertit_en_bgr_trois_canaux():
     """La capture BGRA de mss ressort en BGR contigu (3 canaux, alpha retirée)."""
     faux_mss, _ = _faux_mss()
     with mock.patch.dict(sys.modules, {"mss": faux_mss}):
-        from quest_reader.capture_mss import MssCapture
+        from keraconte.capture_mss import MssCapture
 
         recues = []
 
@@ -177,7 +177,7 @@ def test_mss_arreter_termine_la_boucle_et_tire_on_stop():
     """arreter() (thread Qt) fait sortir la boucle vite ; on_stop tiré une fois."""
     faux_mss, _ = _faux_mss()
     with mock.patch.dict(sys.modules, {"mss": faux_mss}):
-        from quest_reader.capture_mss import MssCapture
+        from keraconte.capture_mss import MssCapture
 
         arrets = []
         cap = MssCapture(lambda f: None, _args_capture(fps=50),
@@ -199,7 +199,7 @@ def test_mss_reselection_change_de_moniteur_a_l_iteration_suivante():
     """
     faux_mss, grabs = _faux_mss(largeur=64, hauteur=48, nb_ecrans=2)
     with mock.patch.dict(sys.modules, {"mss": faux_mss}):
-        from quest_reader.capture_mss import MssCapture
+        from keraconte.capture_mss import MssCapture
 
         cap = MssCapture(lambda f: None, _args_capture())
         etat = {"n": 0}
@@ -245,7 +245,7 @@ def test_factory_route_vers_mss_sur_windows_et_macos():
     branche Linux est exercée implicitement par le reste de la suite, la
     nouvelle non. On simule mss (absent en dev) et la plateforme.
     """
-    from quest_reader import capture_factory
+    from keraconte import capture_factory
 
     faux_mss, _ = _faux_mss()
     args = _args_capture()

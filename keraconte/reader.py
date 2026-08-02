@@ -4,23 +4,23 @@ Plateforme-AGNOSTIQUE : ne connaît que « handle(frame) », qui reçoit une ima
 BGR (np.ndarray) et décide quoi lire. La CAPTURE (portail/PipeWire/GStreamer
 sous Linux, mss ailleurs) vit dans un backend séparé (voir « capture_factory »)
 qui appelle « handle » — c'est la frontière du portage multi-plateforme. Ce
-module ne tire aucune dépendance système Linux : « import quest_reader »
+module ne tire aucune dépendance système Linux : « import keraconte »
 réussit sans python-gobject ni dbus (Windows/macOS).
 """
 
 import time
 
-from quest_reader.detection import (
+from keraconte.detection import (
     bubble_still_there,
     find_bubbles,
     find_dialog_box,
 )
-from quest_reader.engines import build_engine
-from quest_reader.playback import player_state
-from quest_reader.speaker import Speaker
-from quest_reader.speed import Vitesse
-from quest_reader.text import clean, clearest, same_dialog
-from quest_reader.trace import trace as _trace
+from keraconte.engines import build_engine
+from keraconte.playback import player_state
+from keraconte.speaker import Speaker
+from keraconte.speed import Vitesse
+from keraconte.text import clean, clearest, same_dialog
+from keraconte.trace import trace as _trace
 
 
 CLOSED_AFTER = 2  # images sans bulle avant de couper la voix

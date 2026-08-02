@@ -1,4 +1,4 @@
-"""Tests de la re-sélection de la source (quest_reader.reader + capture).
+"""Tests de la re-sélection de la source (keraconte.reader + capture).
 
 Le vrai portail demande Wayland et une interaction ; on double « ScreenCast »
 et l'oubli du jeton pour vérifier l'ORDRE du redémarrage — c'est lui le bug
@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 # à l'import et saute proprement TOUT le fichier — un pytestmark, lu après
 # l'import, arriverait trop tard. La re-sélection portail n'a de sens que sous
 # Linux, ce fichier n'y perd donc rien.
-capture_linux = pytest.importorskip("quest_reader.capture_linux")
+capture_linux = pytest.importorskip("keraconte.capture_linux")
 LinuxCapture = capture_linux.LinuxCapture
 
 
@@ -51,8 +51,8 @@ def test_la_reselection_ferme_oublie_puis_redemarre():
     reader.pipeline = None
 
     ordre = []
-    with mock.patch("quest_reader.capture_linux.ScreenCast", _FauxCast), mock.patch(
-        "quest_reader.capture_linux.forget_token", side_effect=lambda: ordre.append("forget")
+    with mock.patch("keraconte.capture_linux.ScreenCast", _FauxCast), mock.patch(
+        "keraconte.capture_linux.forget_token", side_effect=lambda: ordre.append("forget")
     ):
         # « close » de l'ancienne va dans le journal partagé ; on veut le voir
         # AVANT l'oubli du jeton et AVANT le « start » de la nouvelle.
@@ -80,8 +80,8 @@ def test_la_reselection_installe_une_nouvelle_session():
     reader.cast = ancienne
     reader.pipeline = None
 
-    with mock.patch("quest_reader.capture_linux.ScreenCast", _FauxCast), mock.patch(
-        "quest_reader.capture_linux.forget_token"
+    with mock.patch("keraconte.capture_linux.ScreenCast", _FauxCast), mock.patch(
+        "keraconte.capture_linux.forget_token"
     ):
         reader._reselectionner()
 

@@ -11,14 +11,14 @@ import sys
 
 import cv2
 
-from quest_reader.detection import find_dialog
-from quest_reader.engines import (
+from keraconte.detection import find_dialog
+from keraconte.engines import (
     VOICES,
     XTTS_NARRATION,
     XTTS_VOICE,
     check_xtts,
 )
-from quest_reader.text import clean
+from keraconte.text import clean
 
 
 def main():
@@ -86,7 +86,7 @@ def main():
     # on rejoue donc la résolution pour que « --tesseract » prenne effet.
     if args.tesseract:
         os.environ["QR_TESSERACT"] = args.tesseract
-        from quest_reader.detection import configurer_tesseract
+        from keraconte.detection import configurer_tesseract
 
         configurer_tesseract()
 
@@ -124,9 +124,9 @@ def _smoke_tts(args):
     veut prouver — espeak phonémise, le moteur génère le WAV — précède la
     lecture. Une erreur de synthèse remonte (exit != 0) ; l'absence d'audio non.
     """
-    from quest_reader import playback
-    from quest_reader.engines import build_engine
-    from quest_reader.speed import Vitesse
+    from keraconte import playback
+    from keraconte.engines import build_engine
+    from keraconte.speed import Vitesse
 
     playback.playback.play = lambda *a, **k: None  # sortie audio neutralisée
     moteur = build_engine(args, Vitesse(args.speed))
@@ -151,10 +151,10 @@ def lancer_avec_overlay(args):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
-    from quest_reader.capture_factory import make_capture
-    from quest_reader.overlay import Overlay
-    from quest_reader.playback import player_state
-    from quest_reader.reader import Reader
+    from keraconte.capture_factory import make_capture
+    from keraconte.overlay import Overlay
+    from keraconte.playback import player_state
+    from keraconte.reader import Reader
 
     app = QApplication(sys.argv)
 

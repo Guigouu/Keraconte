@@ -1,4 +1,4 @@
-"""Tests de la lecture des sons (quest_reader.playback).
+"""Tests de la lecture des sons (keraconte.playback).
 
 Le lecteur lit le WAV par tranches et écrit chacune dans un flux sounddevice.
 On double le flux (« FauxSortie ») et la lecture du WAV : on vérifie le
@@ -14,8 +14,8 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.playback import TRANCHE_MS, Playback, wav_temporaire  # noqa: E402
-from quest_reader.state import Etat, PlayerState  # noqa: E402, F401
+from keraconte.playback import TRANCHE_MS, Playback, wav_temporaire  # noqa: E402
+from keraconte.state import Etat, PlayerState  # noqa: E402, F401
 from tests.helpers import FauxSortie  # noqa: E402
 
 

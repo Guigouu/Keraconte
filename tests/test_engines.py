@@ -1,4 +1,4 @@
-"""Tests des moteurs de synthèse (quest_reader.engines)."""
+"""Tests des moteurs de synthèse (keraconte.engines)."""
 
 import pathlib
 import sys
@@ -9,11 +9,11 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.engines import build_engine, check_xtts  # noqa: E402
-from quest_reader.engines.piper import PiperEngine  # noqa: E402
-from quest_reader.engines.xtts import XttsEngine, voice_argument  # noqa: E402
-from quest_reader.playback import playback  # noqa: E402
-from quest_reader.speed import Vitesse  # noqa: E402
+from keraconte.engines import build_engine, check_xtts  # noqa: E402
+from keraconte.engines.piper import PiperEngine  # noqa: E402
+from keraconte.engines.xtts import XttsEngine, voice_argument  # noqa: E402
+from keraconte.playback import playback  # noqa: E402
+from keraconte.speed import Vitesse  # noqa: E402
 from tests.helpers import faux_xtts  # noqa: E402
 
 
@@ -104,7 +104,7 @@ def test_piper_relit_la_vitesse_entre_deux_phrases():
 
     faux_module = faux_piper_suite(rendus, apres_phrase=muter)
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
-        "quest_reader.engines.piper.play_wave"
+        "keraconte.engines.piper.play_wave"
     ):
         moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse, 0)
         moteur.speak(
@@ -134,8 +134,8 @@ def test_piper_pause_entre_phrases_pas_apres_la_derniere(texte, pauses_attendues
     rendus = {}
     faux_module = faux_piper_suite(rendus)
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
-        "quest_reader.engines.piper.play_wave"
-    ), mock.patch("quest_reader.engines.piper.time.sleep") as dors:
+        "keraconte.engines.piper.play_wave"
+    ), mock.patch("keraconte.engines.piper.time.sleep") as dors:
         moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse=Vitesse(1.0), pause=320)
         moteur.speak(texte, narration=False, generation=playback.generation)
 
@@ -151,7 +151,7 @@ def test_speed_accelere_les_deux_moteurs():
     rendus = {}
     faux_module = faux_piper(rendus)
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
-        "quest_reader.engines.piper.play_wave"
+        "keraconte.engines.piper.play_wave"
     ):
         moteur = PiperEngine({"dialogue": "x", "narration": "y"}, Vitesse(1.25), 0)
         moteur.speak("Bonjour.", narration=False, generation=playback.generation)
@@ -172,7 +172,7 @@ def test_piper_relit_la_vitesse_a_chaud():
     faux_module = faux_piper(rendus)
     vitesse = Vitesse(1.0)
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
-        "quest_reader.engines.piper.play_wave"
+        "keraconte.engines.piper.play_wave"
     ):
         moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse, 0)
         moteur.speak("Bonjour.", narration=False, generation=playback.generation)
@@ -296,13 +296,13 @@ def test_kokoro_relit_la_vitesse_a_chaud():
     # KokoroEngine.speak importe soundfile pour écrire le WAV ; c'est un extra
     # optionnel ([kokoro]), absent du cœur installé en CI. On saute sans lui.
     pytest.importorskip("soundfile")
-    from quest_reader.engines.kokoro import KokoroEngine
+    from keraconte.engines.kokoro import KokoroEngine
 
     rendus = {}
     faux_module = faux_kokoro(rendus)
     vitesse = Vitesse(1.0)
     with mock.patch.dict(sys.modules, {"kokoro_onnx": faux_module}), mock.patch(
-        "quest_reader.engines.kokoro.play_wave"
+        "keraconte.engines.kokoro.play_wave"
     ):
         moteur = KokoroEngine(vitesse)
         moteur.speak("Bonjour.", narration=False, generation=playback.generation)
@@ -424,7 +424,7 @@ def test_piper_ecrit_puis_rejoue_par_nom_un_fichier_existant():
     rendus = {}
     faux_module = faux_piper(rendus)
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
-        "quest_reader.engines.piper.play_wave",
+        "keraconte.engines.piper.play_wave",
         side_effect=lambda path, gen: vus.append((path, os.path.getsize(path))),
     ):
         moteur = PiperEngine({"dialogue": "x", "narration": "y"}, Vitesse(1.0), 0)
@@ -446,7 +446,7 @@ def test_xtts_prefetch_utilise_des_fichiers_distincts():
     rendus = {}
     modules, _pu = faux_xtts(rendus)
     with mock.patch.dict(sys.modules, modules), mock.patch(
-        "quest_reader.engines.xtts.play_wave"
+        "keraconte.engines.xtts.play_wave"
     ):
         moteur = XttsEngine({"dialogue": "a", "narration": "b"}, Vitesse(1.0))
         moteur.speak(
@@ -465,9 +465,9 @@ def test_aucun_moteur_ne_rouvre_un_named_temporary_file():
     Windows. Aucun test Linux ne peut échouer sur la sémantique elle-même ;
     ce grash-source est le seul garde-fou local contre une régression.
     """
-    import quest_reader.engines.piper as piper_mod
-    import quest_reader.engines.kokoro as kokoro_mod
-    import quest_reader.engines.xtts as xtts_mod
+    import keraconte.engines.piper as piper_mod
+    import keraconte.engines.kokoro as kokoro_mod
+    import keraconte.engines.xtts as xtts_mod
 
     for module in (piper_mod, kokoro_mod, xtts_mod):
         source = pathlib.Path(module.__file__).read_text(encoding="utf-8")

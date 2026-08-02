@@ -1,4 +1,4 @@
-Required Notice: Copyright 2026 errbudget (https://github.com/errbudget/dofus-quest-reader)
+Required Notice: Copyright 2026 errbudget (https://github.com/errbudget/keraconte)
 
 # PolyForm Noncommercial License 1.0.0
 

@@ -1,4 +1,4 @@
-"""Tests de l'objet Vitesse partagé (quest_reader.speed)."""
+"""Tests de l'objet Vitesse partagé (keraconte.speed)."""
 
 import pathlib
 import sys
@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from quest_reader.speed import MAX, MIN, PAS, Vitesse  # noqa: E402
+from keraconte.speed import MAX, MIN, PAS, Vitesse  # noqa: E402
 
 
 def test_valeur_initiale():

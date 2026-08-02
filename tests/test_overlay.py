@@ -1,4 +1,4 @@
-"""Tests de l'overlay Qt (quest_reader.overlay).
+"""Tests de l'overlay Qt (keraconte.overlay).
 
 Qt tourne « offscreen » : on ne teste pas le rendu ni l'always-on-top
 (vérif manuelle en jeu), seulement qu'un clic écrit la bonne transition dans
@@ -15,8 +15,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
 
-from quest_reader.speed import MAX, MIN, PAS, Vitesse  # noqa: E402
-from quest_reader.state import Etat, PlayerState  # noqa: E402
+from keraconte.speed import MAX, MIN, PAS, Vitesse  # noqa: E402
+from keraconte.state import Etat, PlayerState  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +34,7 @@ def _overlay(
     fermer=lambda: None,
     vitesse=None,
 ):
-    from quest_reader.overlay import Overlay
+    from keraconte.overlay import Overlay
 
     return Overlay(
         state,
@@ -330,7 +330,7 @@ def test_la_poignee_de_taille_borne_l_echelle(app):
     """
     from PySide6.QtCore import QPoint
 
-    from quest_reader.overlay import ECHELLE_MAX
+    from keraconte.overlay import ECHELLE_MAX
 
     overlay = _overlay(PlayerState())
     overlay.poignee_taille.mousePressEvent(_FauxEvenement(QPoint(200, 200)))
@@ -343,7 +343,7 @@ def test_la_poignee_de_taille_reduit_puis_borne_au_minimum(app):
     """Glisser vers l'intérieur réduit l'échelle, sans passer sous ECHELLE_MIN."""
     from PySide6.QtCore import QPoint
 
-    from quest_reader.overlay import ECHELLE_MAX, ECHELLE_MIN
+    from keraconte.overlay import ECHELLE_MAX, ECHELLE_MIN
 
     overlay = _overlay(PlayerState())
     # On part d'une échelle haute pour avoir de la marge de réduction.
@@ -425,7 +425,7 @@ def test_la_croix_ne_grandit_pas_au_resize(app):
     """
     from PySide6.QtCore import QPoint
 
-    from quest_reader.overlay import ECHELLE_MAX
+    from keraconte.overlay import ECHELLE_MAX
 
     overlay = _overlay(PlayerState())
     largeur_depart = overlay.bouton_fermer.minimumWidth()
