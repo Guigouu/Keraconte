@@ -159,6 +159,54 @@ dialogue.
 Cette association sert la voix ici ; l'ADR-0003 en tire davantage (lire le
 texte canonique lui-même).
 
+### Le chemin de décision, d'un coup d'œil
+
+Du geste du joueur à la voix qui parle — tout est automatique, et chaque
+sortie incertaine retombe sur le comportement actuel :
+
+```mermaid
+flowchart TD
+    OUVERTURE["Le joueur parle à un PNJ<br/>bulle + bloc de réponses à l'écran"] --> DETECT["Détection existante<br/>find_bubbles → paire prouvée → OCR → clean"]
+    DETECT --> STABLE{"Texte posé ?<br/>portail 2 images / rattrapage"}
+    STABLE -- "non : attendre l'image suivante" --> DETECT
+    STABLE -- "oui" --> DEJA{"Réplique déjà lue ?<br/>same_dialog + repeat_after"}
+    DEJA -- "oui" --> RIEN["Ne rien relire"]
+    DEJA -- "non : _dire<br/>décision UNE fois par réplique" --> S1
+
+    subgraph CASCADE["Cascade ADR-0001 — abstention par défaut"]
+        S1{"Signal 1 — lexique genré<br/>auto-désignation : métier, titre<br/>« je suis …, chasseur » / « la gardienne »"}
+        S1 -- "sûr" --> GENRE
+        S1 -- "muet" --> S2{"Signal 2 — accords 1re personne<br/>« je suis venue / prête »"}
+        S2 -- "sûr" --> GENRE
+        S2 -- "muet" --> S3{"Signal 3 — empreinte de la réplique<br/>table PNJ embarquée<br/>word_gap ≤ seuil ET marge sur le 2e"}
+        S3 -- "trouvée, genre unique" --> GENRE
+        S3 -- "réplique ambiguë<br/>partagée entre 2 genres" --> ABST
+        S3 -- "hors table" --> S4{"Signal 4 — repli cartouche<br/>OCR 4× + psm 6, noms à marge<br/>(si jamais embarqué)"}
+        S4 -- "nom reconnu" --> GENRE
+        S4 -- "rien de sûr" --> ABST["Abstention"]
+    end
+
+    GENRE{"Genre établi"} -- "féminin" --> CF["Canal pnj_feminin"]
+    GENRE -- "masculin" --> CM["Canal pnj_masculin"]
+    ABST --> CDEF["Canal pnj_masculin<br/>= comportement actuel, à l'identique"]
+
+    CF --> SPLIT
+    CM --> SPLIT
+    CDEF --> SPLIT
+    SPLIT["split_narration :<br/>les didascalies *…* partent au canal<br/>narration, quel que soit le genre"] --> ENGINE{"Moteur — ADR-0002"}
+    ENGINE -- "Piper" --> P["tom / upmc-jessica / siwis"]
+    ENGINE -- "XTTS" --> X["Damien Black / voix nommée féminine / Sofia Hellen"]
+    ENGINE -- "Kokoro" --> K["1 seule voix FR : hors adaptation<br/>didascalies au débit ralenti"]
+
+    S3 -. "association sûre — seuil strict" .-> ADR3["ADR-0003 : le texte canonique<br/>remplace l'OCR pour la synthèse"]
+```
+
+Deux invariants s'y lisent : **aucune branche ne change la voix en cours de
+réplique** (la décision est prise une fois, à `_dire`), et **toutes les
+sorties incertaines convergent vers le canal par défaut** — un joueur sans
+table, sans signal ou face à un PNJ ambigu entend exactement le programme
+d'aujourd'hui.
+
 ## Options étudiées
 
 | Option | Sort | Pourquoi |
