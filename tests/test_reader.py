@@ -247,6 +247,47 @@ def test_rouvrir_le_dialogue_plus_tard_le_relit():
     assert len(lus) == 2
 
 
+AFFREUDITE = (
+    "Je ne trouve pas de bijou digne de ma beauté. Ici, il y a plein de "
+    "pierres précieuses arrachées aux entrailles de la terre, mais moi ce qui "
+    "me plairait, ce serait un bijou en nacre serti de perles parfaites."
+)
+
+
+def test_un_texte_vu_une_seule_fois_est_lu_avant_d_etre_jete():
+    """Vu en jeu (Affreudite) : le dialogue n'était JAMAIS lu.
+
+    Sur un fond très contrasté, « find_bubbles » ne dégage la bulle qu'une
+    image sur dix : le texte complet est vu une fois, mis en attente pour
+    confirmation… et la confirmation ne vient jamais. La bulle disparaît, et
+    « pending » était vidé sans avoir jamais été dit.
+
+    Ici le choix n'est plus « lire tôt ou lire juste » mais « lire ou ne rien
+    lire » : à l'instant où l'on jetterait le texte, on le lit.
+    """
+    reader = lecteur_nu()
+    lus = images(reader, [AFFREUDITE] + [None] * 2)
+    assert lus == [clean(AFFREUDITE)]
+
+
+def test_le_rattrapage_ne_dit_pas_un_texte_manifestement_tronque():
+    """Le rattrapage ne doit pas ressusciter le bug du dialogue amputé.
+
+    Un fragment sans ponctuation finale est une lecture d'OCR en chemin
+    (mémoire « texte-progressif ») : le taire reste le bon choix.
+    """
+    reader = lecteur_nu()
+    lus = images(reader, ["Un dresseur a craché le morceau il a indiqué"] + [None] * 2)
+    assert lus == []
+
+
+def test_le_rattrapage_ne_double_pas_un_dialogue_deja_lu():
+    """Le cas normal (deux images concordantes) ne doit pas être relu à la coupure."""
+    reader = lecteur_nu()
+    lus = images(reader, [AFFREUDITE] * 2 + [None] * 2)
+    assert lus == [clean(AFFREUDITE)]
+
+
 def test_la_coupure_n_est_ordonnee_qu_une_fois():
     """Rester devant un écran sans bulle ne doit pas marteler « silence »."""
     reader = lecteur_nu()

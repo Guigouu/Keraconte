@@ -13,6 +13,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from unittest import mock  # noqa: E402
+
 import pytest  # noqa: E402
 
 from keraconte.speed import MAX, MIN, PAS, Vitesse  # noqa: E402
@@ -34,6 +36,7 @@ def _overlay(
     fermer=lambda: None,
     vitesse=None,
     nb_ecrans=None,
+    console_disponible=False,
 ):
     from keraconte.overlay import Overlay
 
@@ -44,6 +47,7 @@ def _overlay(
         fermer=fermer,
         vitesse=vitesse if vitesse is not None else Vitesse(1.22),
         nb_ecrans=nb_ecrans,
+        console_disponible=console_disponible,
     )
 
 
@@ -618,3 +622,52 @@ def test_la_croix_ne_grandit_pas_au_resize(app):
     # « minimumWidth » ci-dessus (qui passerait sans setFixedSize), qui garantit
     # que le ✕ ne s'étire jamais.
     assert overlay.bouton_fermer.minimumSize() == overlay.bouton_fermer.maximumSize()
+
+
+def test_l_overlay_ne_vole_jamais_le_focus_au_jeu(app):
+    """Vu en jeu (Windows) : le curseur scintillait plusieurs fois par seconde.
+
+    Une fenêtre « always-on-top » qui accepte l'activation fait reperdre le
+    premier plan au jeu en boucle : Dofus le reprend, l'overlay le lui vole,
+    et le curseur clignote. Les deux attributs ci-dessous disent à Qt de
+    montrer et de garder la barre SANS jamais l'activer.
+    """
+    from PySide6.QtCore import Qt
+
+    overlay = _overlay(PlayerState())
+    assert overlay.widget.testAttribute(Qt.WA_ShowWithoutActivating)
+    assert overlay.widget.windowFlags() & Qt.WindowDoesNotAcceptFocus
+
+
+def test_le_cadre_de_flash_ne_vole_jamais_le_focus(app):
+    """Le cadre apparaît PENDANT le jeu : lui non plus ne doit rien activer."""
+    from PySide6.QtCore import Qt
+
+    from keraconte.overlay import FlashCadre
+
+    cadre = FlashCadre(0, 0, 100, 100)
+    assert cadre.testAttribute(Qt.WA_ShowWithoutActivating)
+    assert cadre.windowFlags() & Qt.WindowDoesNotAcceptFocus
+
+
+def test_le_bouton_console_bascule_l_affichage(app):
+    """Le ▤ montre puis recache la console (Windows).
+
+    La console reste construite dans l'exe (« console=True » : la CI lit la
+    sortie de --test), mais elle est masquée au démarrage. Ce bouton la rend
+    consultable à la demande.
+    """
+    from keraconte import console as module_console
+
+    appels = []
+    overlay = _overlay(PlayerState(), console_disponible=True)
+    with mock.patch.object(module_console, "montrer", lambda v: appels.append(v) or v):
+        overlay.on_console()
+        overlay.on_console()
+    assert appels == [True, False]
+
+
+def test_sans_console_le_bouton_est_absent(app):
+    """Sous Linux (ou sans console attachée), pas de bouton qui ne ferait rien."""
+    overlay = _overlay(PlayerState(), console_disponible=False)
+    assert overlay.bouton_console is None

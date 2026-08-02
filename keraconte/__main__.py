@@ -156,7 +156,16 @@ def lancer_avec_overlay(args):
     from keraconte.playback import player_state
     from keraconte.reader import Reader
 
+    from keraconte import console
+
     app = QApplication(sys.argv)
+
+    # La console est masquée dès le lancement de l'interface : l'exe est bâti
+    # avec « console=True » (le smoke test de la CI lit la sortie de --test, et
+    # un build fenêtré n'a pas de stdout), mais le joueur n'a rien à faire d'une
+    # fenêtre noire derrière son jeu. Le bouton ▤ la rappelle au besoin. No-op
+    # hors Windows, où le terminal appartient à l'utilisateur.
+    console_disponible = console.masquer_au_demarrage()
 
     reader = Reader(args)
     # La capture est un backend séparé (Linux : portail/GStreamer ; Windows/mac
@@ -182,6 +191,7 @@ def lancer_avec_overlay(args):
         fermer=app.quit,
         vitesse=reader.vitesse,
         nb_ecrans=nb_ecrans,
+        console_disponible=console_disponible,
     )
     overlay.show()
 

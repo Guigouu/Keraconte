@@ -8,6 +8,7 @@ module ne tire aucune dépendance système Linux : « import keraconte »
 réussit sans python-gobject ni dbus (Windows/macOS).
 """
 
+import re
 import time
 
 from keraconte.detection import (
@@ -24,6 +25,10 @@ from keraconte.trace import trace as _trace
 
 
 CLOSED_AFTER = 2  # images sans bulle avant de couper la voix
+# Une réplique achevée se termine par une ponctuation forte (« clean » a déjà
+# coupé après la dernière). Un texte qui n'en a pas est une lecture saisie en
+# chemin : c'est le seul garde-fou du rattrapage de « pending ».
+FIN_DE_PHRASE = re.compile(r"[.!?…*][\s»\"']*$")
 
 
 class Reader:
@@ -82,6 +87,15 @@ class Reader:
             # une seule fois, pas à chaque image absente au-delà.
             self.missing += 1
             if self.missing == CLOSED_AFTER:
+                # Un texte encore en attente est sur le point d'être jeté : la
+                # bulle a disparu, la deuxième image qui l'aurait confirmé ne
+                # viendra jamais. Vu en jeu (Affreudite, fond très contrasté) :
+                # « find_bubbles » ne dégageait la bulle qu'une image sur dix,
+                # le dialogue entier était vu une fois puis effacé sans avoir
+                # été dit. À cet instant le choix n'est plus « lire tôt ou lire
+                # juste » — le portail à deux images n'a plus rien à arbitrer —
+                # mais « lire ou ne rien lire du tout ».
+                self._dire_le_texte_en_attente()
                 _trace(f">>> SILENCE (bulle absente {CLOSED_AFTER} images) : coupe la voix")
                 self.speaker.silence()
                 # « last_text » survit exprès. Trois images sans bulle ne
@@ -133,14 +147,44 @@ class Reader:
                 f"{len(self.pending)} variante(s))"
             )
             return
-        _images_avant_say = len(self.pending)
+        self._dire(clearest(*self.pending), len(self.pending), now)
+
+    def _dire_le_texte_en_attente(self):
+        """Lit le texte en attente au lieu de le jeter, s'il paraît complet.
+
+        Appelé au seul moment où « pending » serait perdu. Un fragment sans
+        ponctuation finale est une lecture d'OCR saisie en chemin (mémoire
+        « texte-progressif ») : le taire reste le bon choix, c'est exactement ce
+        que le portail à deux images protège. Mais un texte qui se termine
+        proprement et qu'aucune image ne viendra plus confirmer doit être dit,
+        sans quoi la réplique est perdue en silence.
+        """
+        if not self.pending:
+            return
         text = clearest(*self.pending)
+        if not FIN_DE_PHRASE.search(text):
+            _trace(f"pending jeté : texte tronqué ({len(text)} car.)")
+            return
+        # Même garde de relecture que le chemin normal : sans elle, une réplique
+        # déjà dite repartirait en lecture à la fermeture de sa propre bulle.
+        now = time.time()
+        if (
+            self.last_text is not None
+            and same_dialog(text, self.last_text)
+            and now - self.last_seen < self.args.repeat_after
+        ):
+            return
+        _trace(f"RATTRAPAGE : texte vu une seule fois, dit avant d'être jeté")
+        self._dire(text, len(self.pending), now)
+
+    def _dire(self, text, images_vues, now):
+        """Confie le texte à la synthèse et note qu'il a été lu."""
         self.pending = []
         self.last_text = text
         self.last_seen = now
         _trace(
             f">>> SAY : lance la lecture ({len(text)} car., "
-            f"posé après {_images_avant_say} image(s))"
+            f"posé après {images_vues} image(s))"
         )
         print(f"\n> {text}", flush=True)
         self.speaker.say(text)

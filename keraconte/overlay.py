@@ -204,7 +204,14 @@ class Overlay:
     """
 
     def __init__(
-        self, state, couper, reselectionner, fermer, vitesse, nb_ecrans=None
+        self,
+        state,
+        couper,
+        reselectionner,
+        fermer,
+        vitesse,
+        nb_ecrans=None,
+        console_disponible=False,
     ):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import (
@@ -223,6 +230,13 @@ class Overlay:
         self.nb_ecrans = nb_ecrans
         # Fenêtre-cadre du retour visuel, vivante seulement pendant le flash.
         self._cadre = None
+        # La console existe-t-elle et peut-on la piloter ? (Windows seulement.)
+        # Faux sous Linux : le terminal appartient à l'utilisateur, et un bouton
+        # sans effet vaut moins que pas de bouton du tout.
+        self.console_disponible = console_disponible
+        # Masquée au démarrage (voir « console.masquer_au_demarrage ») : l'état
+        # de départ du bouton doit dire la même chose.
+        self._console_visible = False
         # La re-sélection et la fermeture ne sont PAS des transitions d'état de
         # lecture : elles ne passent pas par PlayerState (qui reste le seul
         # découplage de la lecture), mais par des callbacks à part, comme
@@ -237,8 +251,20 @@ class Overlay:
 
         self.widget = QWidget()
         self.widget.setWindowFlags(
-            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+            Qt.FramelessWindowHint
+            | Qt.WindowStaysOnTopHint
+            | Qt.Tool
+            # Ne JAMAIS prendre le focus. Vu en jeu (Windows) : le curseur
+            # scintillait plusieurs fois par seconde. Une fenêtre always-on-top
+            # qui accepte l'activation dispute sans cesse le premier plan au
+            # jeu — Dofus le reprend, la barre le lui revole. Les boutons
+            # restent cliquables : un clic agit sans activer la fenêtre.
+            | Qt.WindowDoesNotAcceptFocus
         )
+        # Le pendant du drapeau ci-dessus pour l'affichage : « show() » ne doit
+        # pas non plus activer la barre au démarrage, sinon le jeu perd le
+        # premier plan à l'instant où l'overlay apparaît.
+        self.widget.setAttribute(Qt.WA_ShowWithoutActivating)
 
         disposition = QHBoxLayout(self.widget)
         # Marges verticales resserrées (défaut Qt = 11 px en haut ET en bas) : la
@@ -282,6 +308,14 @@ class Overlay:
         # comme les ➕/➖ qu'on a dû abandonner.
         self.bouton_source = QPushButton("⧉")
         self.bouton_source.setToolTip("Choisir la fenêtre ou l'écran à lire")
+        # « ▤ » (rectangle rayé, U+25A4) : la console, masquée par défaut mais
+        # consultable à la demande (traces QR_DEBUG, messages d'erreur). N'existe
+        # QUE s'il y a vraiment une console à piloter — sous Linux, le terminal
+        # n'appartient pas à l'application.
+        self.bouton_console = None
+        if self.console_disponible:
+            self.bouton_console = QPushButton("▤")
+            self.bouton_console.setToolTip("Afficher la console")
         # Bouton de fermeture : sans lui, seul Ctrl+C dans le terminal quittait.
         # Petit carré fixe, façon ✕ de barre de titre — sinon le sizeHint d'un
         # QPushButton le rend large (~80 px) et le bandeau haut trop épais. Le
@@ -309,6 +343,8 @@ class Overlay:
         self.bouton_moins.clicked.connect(self.on_moins)
         self.bouton_plus.clicked.connect(self.on_plus)
         self.bouton_source.clicked.connect(self.on_source)
+        if self.bouton_console is not None:
+            self.bouton_console.clicked.connect(self.on_console)
         self.bouton_fermer.clicked.connect(self.on_fermer)
         # Pas de taille forcée : chaque bouton garde son « sizeHint », compact.
         # Une version passée figeait toute la rangée à un carré du plus grand
@@ -325,6 +361,8 @@ class Overlay:
         disposition.addWidget(self.label_vitesse)
         disposition.addWidget(self.bouton_plus)
         disposition.addWidget(self.bouton_source)
+        if self.bouton_console is not None:
+            disposition.addWidget(self.bouton_console)
 
         # Coin droit : une petite colonne ✕ (haut) au-dessus de ◢ (bas), au
         # bout de la MÊME rangée — pas d'étage séparé, qui créait une bande
@@ -362,6 +400,10 @@ class Overlay:
             self.bouton_plus,
             self.bouton_source,
         ]
+        # Le ▤ suit la même échelle que la rangée (quand il existe) : laissé de
+        # côté, il resterait figé à 44 px pendant que ses voisins grandissent.
+        if self.bouton_console is not None:
+            self._boutons_echelle.append(self.bouton_console)
         # Largeur de base COMPACTE, pas le « sizeHint » (80 px, surtout du vide).
         # On force LARGEUR_BOUTON pour resserrer la barre autour des glyphes ;
         # « _appliquer_echelle » la multiplie ensuite par l'échelle courante.
@@ -457,6 +499,22 @@ class Overlay:
     def on_source(self):
         """Rouvre le sélecteur de source (fenêtre ou écran)."""
         self.reselectionner()
+
+    def on_console(self):
+        """Montre ou recache la fenêtre console (Windows).
+
+        Elle est masquée au démarrage : ce bouton la rend consultable quand on
+        veut voir les traces, sans imposer une fenêtre noire au joueur le reste
+        du temps. On suit l'état RENVOYÉ par « montrer » et non celui qu'on a
+        demandé : sans console pilotable, il reste faux et le libellé ne ment
+        pas.
+        """
+        from keraconte import console
+
+        self._console_visible = console.montrer(not self._console_visible)
+        self.bouton_console.setToolTip(
+            "Masquer la console" if self._console_visible else "Afficher la console"
+        )
 
     def _montrer_flash(self, geometrie):
         """Affiche 2 s un cadre autour du moniteur capturé (slot du thread Qt).
@@ -589,8 +647,13 @@ def _classe_cadre():
                 | Qt.WindowStaysOnTopHint
                 | Qt.Tool
                 | Qt.WindowTransparentForInput  # cliquable à travers : ne bloque pas le jeu
+                # Le cadre surgit PENDANT que le joueur joue : lui non plus ne
+                # doit jamais disputer le premier plan au jeu (même cause de
+                # scintillement que la barre de contrôles).
+                | Qt.WindowDoesNotAcceptFocus
             )
             self.setAttribute(Qt.WA_TranslucentBackground)  # fond transparent
+            self.setAttribute(Qt.WA_ShowWithoutActivating)
             self.setGeometry(left, top, width, height)
 
         def paintEvent(self, _event):
