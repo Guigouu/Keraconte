@@ -2,8 +2,16 @@ name: build-release
 
 # Construit le fat exec keraconte (onedir PyInstaller) pour Windows et Linux.
 # PyInstaller ne cross-compile pas : chaque OS construit SON propre exécutable.
-# Déclenché sur tag « v* » (attache alors les archives à une Release) ou à la
-# main via « workflow_dispatch » (pour éprouver le build sans poser de tag).
+#
+# Trois déclencheurs, un seul build :
+#   - tag « v* »       → archives attachées à une Release GitHub ;
+#   - branche « dev/** » → exe de DEV, en artefact seulement, aucune Release ;
+#   - « workflow_dispatch » → à la main, sur n'importe quelle branche.
+#
+# La branche « dev/** » sert à essayer un correctif EN JEU sans poser de tag :
+# le défaut de détection ne se reproduit que sur le flux réel (cf. la paire de
+# fixtures Affreudite/hôtel de vente), et attendre une release pour l'éprouver
+# coûtait un tag par essai. L'artefact reste attaché au run, jamais publié.
 #
 # macOS est hors ship (bloqueurs TCC/signature) : pas de job macOS ici.
 # L'exe Linux suppose gi/GStreamer/PipeWire système (prérequis, non embarqués) ;
@@ -12,6 +20,7 @@ name: build-release
 on:
   push:
     tags: ["v*"]
+    branches: ["dev/**"]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +44,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # Un exe de dev doit se DISTINGUER d'une release, sinon on teste en jeu
+      # sans savoir lequel des deux on tient. Le nom d'artefact porte donc la
+      # branche et le SHA court ; « ref_name » d'une branche « dev/x » contient
+      # une barre oblique, interdite dans un nom d'artefact — on la remplace.
+      - name: Étiquette du build
+        id: etiquette
+        shell: bash
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            echo "suffixe=" >> "$GITHUB_OUTPUT"
+          else
+            branche="${GITHUB_REF_NAME//\//-}"
+            echo "suffixe=-dev-${branche}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -161,11 +185,13 @@ jobs:
       - name: Uploader l'artefact
         uses: actions/upload-artifact@v4
         with:
-          name: keraconte-${{ runner.os }}
+          name: keraconte-${{ runner.os }}${{ steps.etiquette.outputs.suffixe }}
           path: |
             keraconte-*.tar.gz
             keraconte-*.zip
           if-no-files-found: error
+          # Un build de dev est jetable : on ne garde pas 90 jours d'essais.
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/v') && 90 || 14 }}
 
       # Sur tag « v* » : attacher les archives à la Release GitHub.
       - name: Attacher à la Release
