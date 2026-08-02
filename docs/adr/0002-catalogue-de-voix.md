@@ -64,6 +64,13 @@ multi-locuteurs (sélection du `speaker_id`) par l'API `piper-tts` utilisée
 par la meilleure voix féminine mono-locuteur du catalogue, et la décision
 d'affectation est mise à jour ici même.
 
+> **Vérifié le 2026-08-03** : `SynthesisConfig` porte `speaker_id:
+> Optional[int]` et la config des voix expose `speaker_id_map` +
+> `default_speaker_id`. L'affectation `upmc`/jessica est retenue, désignée
+> par la syntaxe `chemin.onnx#locuteur` (implémentée dans `PiperEngine`,
+> avec repli sur la voix masculine si la voix féminine n'est pas
+> téléchargée).
+
 ### 2. Un banc d'essai standard, porte d'entrée de tout nouveau moteur
 
 Le naturel ne s'obtiendra pas en empilant des moteurs au jugé : chaque

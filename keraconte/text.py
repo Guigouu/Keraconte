@@ -101,18 +101,26 @@ def clearest(*variants):
     return min(complete or variants, key=damage)
 
 
+def vocabulaire(text):
+    """Mots significatifs d'un texte : trois lettres et plus, en minuscules.
+
+    Les mots plus courts sont ignorés : l'OCR sème des « À » et des « i » en
+    marge du texte. C'est LA normalisation partagée — « word_gap » (comparaison
+    de deux lectures), la décision de genre (« genre.py ») et le script de
+    génération de table (« outils/generer_table_genre.py ») doivent découper
+    pareil, sans quoi une empreinte construite hors ligne ne retrouverait
+    jamais celle calculée au runtime.
+    """
+    return {word for word in re.findall(r"[\w’']{3,}", text.lower())}
+
+
 def word_gap(first, second):
     """Mesure l'écart de vocabulaire entre deux lectures, relatif à la plus courte.
 
     Insensible à l'ordre des mots et à la troncature, là où la comparaison de
-    séquence trébuche sur les deux. Les mots de moins de trois lettres sont
-    ignorés : l'OCR sème des « À » et des « i » en marge du texte.
+    séquence trébuche sur les deux.
     """
-
-    def vocabulary(text):
-        return {word for word in re.findall(r"[\w’']{3,}", text.lower())}
-
-    left, right = vocabulary(first), vocabulary(second)
+    left, right = vocabulaire(first), vocabulaire(second)
     if not left or not right:
         return 0.0 if left == right else float("inf")
     return len(left ^ right) / min(len(left), len(right))

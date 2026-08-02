@@ -1,6 +1,7 @@
 """Moteur Kokoro : une seule voix française, sur le processeur."""
 
 from keraconte.engines import KOKORO_MODEL, KOKORO_VOICES, Engine
+from keraconte.genre import Canal
 from keraconte.playback import play_wave, wav_temporaire
 from keraconte.text import pronounce, speakable
 
@@ -26,7 +27,7 @@ class KokoroEngine(Engine):
         # pour que le débit change à chaud, sans reconstruire le moteur.
         self.vitesse = vitesse
 
-    def speak(self, text, narration, generation):
+    def speak(self, text, canal, generation):
         import soundfile
 
         spoken = pronounce(text)
@@ -34,7 +35,10 @@ class KokoroEngine(Engine):
         if not speakable(spoken):
             return
         speed = self.vitesse.valeur
-        if narration:
+        # Kokoro est HORS adaptation de genre (ADR-0001) : une seule voix
+        # française dans le modèle. PNJ_MASCULIN et PNJ_FEMININ sonnent donc
+        # pareil ; seule la narration se distingue, par le débit.
+        if canal is Canal.NARRATION:
             speed *= self.NARRATION_SLOWDOWN
         samples, rate = self.kokoro.create(
             spoken, voice=self.VOICE, lang="fr-fr", speed=speed

@@ -80,15 +80,19 @@ class XttsEngine(Engine):
             **voice_argument(sample),
         )
 
-    def speak(self, text, narration, generation):
+    def speak(self, text, canal, generation):
         """Synthétise la phrase suivante pendant que la précédente se joue.
 
         « play_wave » bloque, et XTTS met environ une seconde et demie par
         phrase : les enchaîner bout à bout laissait un silence entre chacune,
         soit cinq trous dans une réplique un peu longue. Piper synthétise
         trop vite pour que cela s'entende, d'où le découpage naïf d'origine.
+
+        « samples » est indexé par Canal : trois voix nommées (ou WAV clonés),
+        une par canal — le modèle rend la sélection gratuite, contrairement à
+        Piper où chaque voix est un fichier à charger.
         """
-        sample = self.samples["narration" if narration else "dialogue"]
+        sample = self.samples[canal]
         # Sans phonème, le moteur concatène une liste vide et lève.
         sentences = [
             sentence

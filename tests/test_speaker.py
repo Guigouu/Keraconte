@@ -21,7 +21,7 @@ def test_le_speaker_s_arrete_sans_vider_sa_file():
     dits = []
 
     class MoteurFactice:
-        def speak(self, texte, narration, generation):
+        def speak(self, texte, canal, generation):
             dits.append(texte)
 
     speaker = Speaker(MoteurFactice)
@@ -76,7 +76,7 @@ def test_un_nouveau_dialogue_coupe_le_precedent():
     """
 
     class MoteurFactice:
-        def speak(self, texte, narration, generation):
+        def speak(self, texte, canal, generation):
             pass
 
     speaker = Speaker(MoteurFactice)

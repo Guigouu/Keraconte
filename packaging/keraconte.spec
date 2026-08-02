@@ -38,10 +38,13 @@ RACINE = Path(SPECPATH).resolve().parent
 WINDOWS = sys.platform == "win32"
 EXE_NOM = "keraconte"
 
-# Les DEUX voix du comportement par défaut (cf. design) : tom pour le PNJ,
-# siwis pour le narrateur d'actions entre astérisques. Chaque voix = .onnx +
-# .onnx.json (config obligatoire de Piper). Omettre siwis => narrateur muet.
-VOIX_DEFAUT = ["fr_FR-tom-medium", "fr_FR-siwis-medium"]
+# Les TROIS voix du comportement par défaut (ADR-0002) : tom pour le PNJ
+# masculin (et l'inconnu), upmc — multi-locuteurs, dont jessica — pour le PNJ
+# féminin (ADR-0001), siwis pour le narrateur d'actions entre astérisques.
+# Chaque voix = .onnx + .onnx.json (config obligatoire de Piper). Omettre
+# siwis => narrateur muet ; omettre upmc => repli féminin sur la voix
+# masculine (annoncé au joueur, mais autant embarquer la voix).
+VOIX_DEFAUT = ["fr_FR-tom-medium", "fr_FR-siwis-medium", "fr_FR-upmc-medium"]
 
 
 def _dossier_voix():

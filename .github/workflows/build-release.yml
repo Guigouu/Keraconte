@@ -39,8 +39,9 @@ jobs:
       # La spec lit ces variables pour localiser les ressources à embarquer.
       QR_VOICES: ${{ github.workspace }}/voices
       QR_TESSDATA: ${{ github.workspace }}/tessdata
-      # Les deux voix du comportement par défaut (PNJ + narrateur).
-      VOIX: "fr_FR-tom-medium fr_FR-siwis-medium"
+      # Les trois voix du comportement par défaut (PNJ masculin + narrateur +
+      # PNJ féminin, cf. ADR-0001/0002 — upmc est multi-locuteurs, jessica).
+      VOIX: "fr_FR-tom-medium fr_FR-siwis-medium fr_FR-upmc-medium"
 
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +133,7 @@ jobs:
       - name: PyInstaller
         run: pyinstaller --clean --noconfirm packaging/keraconte.spec
 
-      # --- Fumée : l'exe FIGÉ OCRise ET parle (les 2 voix) --------------------
+      # --- Fumée : l'exe FIGÉ OCRise ET parle (les 3 voix) --------------------
       # Le seul signal automatique que le bundle n'est pas silencieusement muet
       # (espeak-ng-data absentes) ni OCR-mort (libs tesseract manquantes).
       - name: Smoke OCR + TTS (Linux)
@@ -147,7 +148,7 @@ jobs:
           ocr="$("$exe" --test tests/fixtures/dialogues/dialogue_brakmar.png)"
           echo "OCR: $ocr"
           case "$ocr" in *forgemage*) ;; *) echo "OCR muet/faux"; exit 1;; esac
-          # TTS : la synthèse des 2 voix doit aboutir (espeak-ng-data du bundle).
+          # TTS : la synthèse des 3 voix doit aboutir (espeak-ng-data du bundle).
           tts="$("$exe" --dire "Bonjour, *il acquiesce*, test.")"
           echo "TTS: $tts"
           case "$tts" in *"Synthèse OK"*) ;; *) echo "TTS muet"; exit 1;; esac
