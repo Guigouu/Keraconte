@@ -20,8 +20,9 @@ projet), reprise simple sur erreur. La table se périme à chaque mise à jour
 du jeu : la régénérer alors, la date affichée dans le fichier fait foi.
 
 Usage :
-    python outils/generer_table_genre.py [--sortie CHEMIN] [--limite N]
+    python3 outils/generer_table_genre.py [--sortie CHEMIN] [--limite N]
 
+Un Python NU suffit (stdlib seulement) : le venv du projet n'est pas requis.
 Par défaut la sortie va là où le runtime la cherche
 (keraconte.genre._chemin_table) ; « --limite » borne le nombre de PNJ pour
 un essai rapide.
@@ -33,12 +34,37 @@ import json
 import os
 import sys
 import time
+import types
 import urllib.parse
 import urllib.request
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# « keraconte.genre » et « keraconte.text » sont des feuilles sans dépendance
+# lourde — mais importer « keraconte.genre » exécute d'abord l'__init__ du
+# paquet, qui tire cv2/pytesseract/PySide6 : l'outil exigerait alors tout le
+# venv du projet pour trois fonctions de hachage. On pose donc un paquet
+# SQUELETTE (même nom, __path__ sur le vrai dossier, pas d'__init__ exécuté) :
+# les sous-modules réels se chargent au travers — même code que le runtime,
+# c'est le contrat — sans réveiller le reste du paquet.
+_RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if "keraconte" not in sys.modules:
+    _squelette = types.ModuleType("keraconte")
+    _squelette.__path__ = [os.path.join(_RACINE, "keraconte")]
+    sys.modules["keraconte"] = _squelette
 
 from keraconte.genre import FEMININ, MASCULIN, jetons, _chemin_table  # noqa: E402
+
+
+def _sortie_par_defaut():
+    """Chemin de sortie du runtime ; repli XDG si platformdirs manque.
+
+    « _chemin_table » importe platformdirs (dépendance du projet, pas de la
+    stdlib) : avec un Python nu on retombe sur l'équivalent Linux exact de
+    « user_data_dir » — même fichier, même endroit.
+    """
+    try:
+        return _chemin_table()
+    except ImportError:
+        return os.path.expanduser("~/.local/share/keraconte/table-genre.json")
 
 API = "https://api.dofusdb.fr"
 PAGE = 50  # taille de page Feathers ($limit)
@@ -192,21 +218,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--sortie",
-        default=_chemin_table(),
+        default=None,
         help="fichier JSON à écrire (défaut : là où le runtime le cherche)",
     )
     parser.add_argument(
         "--limite", type=int, help="borner le nombre de PNJ (essai rapide)"
     )
     args = parser.parse_args()
+    sortie = args.sortie or _sortie_par_defaut()
 
     table = generer(args.limite)
-    os.makedirs(os.path.dirname(args.sortie) or ".", exist_ok=True)
-    with open(args.sortie, "w", encoding="utf-8") as fichier:
+    os.makedirs(os.path.dirname(sortie) or ".", exist_ok=True)
+    with open(sortie, "w", encoding="utf-8") as fichier:
         json.dump(table, fichier, ensure_ascii=False)
     ambigues = sum(1 for e in table["entrees"] if e["genre"] == "ambigu")
     print(
-        f"Table écrite : {args.sortie} — {table['pnj']} PNJ, "
+        f"Table écrite : {sortie} — {table['pnj']} PNJ, "
         f"{len(table['entrees'])} répliques ({ambigues} ambiguës), "
         f"{len(table['noms'])} noms."
     )
