@@ -166,6 +166,12 @@ def lancer_avec_overlay(args):
     capture = make_capture(reader.handle, args, on_stop=reader.speaker.stop)
     capture.demarrer_capture()
 
+    # Nombre d'écrans, connu du backend mss seulement (pas du portail Linux, où
+    # re-sélectionner garde du sens) : l'overlay s'en sert pour griser le bouton
+    # source quand il n'y a qu'un écran, rien à basculer.
+    nombre = getattr(capture, "nombre_ecrans", None)
+    nb_ecrans = nombre() if nombre is not None else None
+
     # Le stop de l'overlay coupe la voix en cours ; ⧉ rouvre le sélecteur de
     # source (posté sur le thread de capture) ; ✕ quitte l'app — « app.quit »
     # déclenche « aboutToQuit » et l'arrêt propre ci-dessous.
@@ -175,8 +181,18 @@ def lancer_avec_overlay(args):
         reselectionner=capture.demander_reselection,
         fermer=app.quit,
         vitesse=reader.vitesse,
+        nb_ecrans=nb_ecrans,
     )
     overlay.show()
+
+    # Retour visuel de la source : le backend émet la géométrie du moniteur
+    # capturé, l'overlay dessine un cadre 2 s. On branche « flash_source.emit »
+    # (un SIGNAL Qt, livraison inter-thread mise en file par PySide6) et JAMAIS
+    # un appel direct au widget — fait juste AVANT que le thread de capture
+    # démarre, donc lu sans course par la boucle. Seul le backend mss lit
+    # « on_source » aujourd'hui ; l'assigner au backend portail Linux est inerte
+    # (le flash y viendra plus tard, depuis on_node) mais sans effet de bord.
+    capture.on_source = overlay.flash_source.emit
 
     fil_capture = threading.Thread(target=capture.boucler, daemon=True)
     fil_capture.start()

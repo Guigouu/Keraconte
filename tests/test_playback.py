@@ -117,6 +117,50 @@ def test_abandonne_en_cours_si_la_generation_change():
     assert sortie.ferme
 
 
+def test_une_phrase_complete_est_vidangee_avant_fermeture():
+    """Fin normale : « stop » (vidange) AVANT « close ».
+
+    « close » seul peut abandonner les échantillons encore en tampon : sur
+    WASAPI (Windows), la toute fin de la phrase — juste avant le point — est
+    coupée net. « stop » laisse PortAudio jouer ce reliquat. On exige donc
+    l'ordre stop→close quand la phrase s'est jouée jusqu'au bout.
+    """
+    pb = _playback()
+    gen = pb.begin()
+    sortie = FauxSortie()
+    with mock.patch.object(pb, "_ouvrir_sortie", return_value=sortie), mock.patch.object(
+        pb, "_lire_wav", return_value=FAUX_WAV
+    ):
+        pb.play("/tmp/x.wav", gen)
+    assert sortie.journal == ["stop", "close"]  # vidangé, puis fermé
+
+
+def test_une_coupure_de_generation_ne_vidange_pas():
+    """Coupure (bascule/stop) : « close » SANS « stop » — on coupe net, exprès.
+
+    Vider ici ferait traîner un son PÉRIMÉ après un changement de dialogue,
+    l'inverse du but de la coupure. La vidange ne concerne que la fin naturelle
+    d'une phrase, pas l'abandon sur changement de génération.
+    """
+    pb = _playback()
+    gen = pb.begin()
+    sortie = FauxSortie()
+
+    vraie_write = sortie.write
+
+    def write_puis_bump(tranche):
+        vraie_write(tranche)
+        if sortie.tranches == 3:
+            pb.bump()  # un nouveau dialogue coupe la lecture
+
+    sortie.write = write_puis_bump
+    with mock.patch.object(pb, "_ouvrir_sortie", return_value=sortie), mock.patch.object(
+        pb, "_lire_wav", return_value=FAUX_WAV
+    ):
+        pb.play("/tmp/x.wav", gen)
+    assert sortie.journal == ["close"]  # pas de « stop » : coupé net, voulu
+
+
 def test_la_pause_bloque_avant_la_tranche_suivante():
     """En pause, la boucle attend ; la reprise fait repartir la lecture."""
     state = PlayerState()

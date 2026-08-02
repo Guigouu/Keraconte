@@ -28,10 +28,15 @@ class MssCapture:
     boucle (arrêt du Speaker, que reader.py ne pilote plus). « args.fps » cadence.
     """
 
-    def __init__(self, on_frame, args, on_stop=None):
+    def __init__(self, on_frame, args, on_stop=None, on_source=None):
         self.on_frame = on_frame
         self.args = args
         self.on_stop = on_stop
+        # Retour visuel de la source (optionnel, comme on_stop) : le thread de
+        # capture est le SEUL à connaître le moniteur ciblé (mss n'est ouvert
+        # que là), il émet sa géométrie (left, top, width, height) vers le
+        # thread Qt, qui dessine le cadre. JAMAIS d'appel direct au widget ici.
+        self.on_source = on_source
         # Index du moniteur dans mss.monitors. 1 = premier écran physique ;
         # monitors[0] est l'UNION de tous les écrans, à ne pas capturer : sa
         # géométrie doublée fausserait les seuils de détection calibrés sur un
@@ -63,6 +68,10 @@ class MssCapture:
         import mss
 
         periode = 1.0 / max(self.args.fps, 1)
+        # Émettre le retour à la 1re capture (baseline : « voilà ce que je
+        # capture ») ET à chaque changement — mais PAS à chaque image, sinon le
+        # cadre clignoterait en boucle. Ce drapeau force la 1re émission.
+        signaler = True
         try:
             with mss.MSS() as sct:
                 while not self._arret.is_set():
@@ -71,7 +80,11 @@ class MssCapture:
                     if self._changer_moniteur:
                         self._changer_moniteur = False
                         self._moniteur = self._moniteur_suivant(sct)
+                        signaler = True
                     moniteur = sct.monitors[self._moniteur]
+                    if signaler:
+                        signaler = False
+                        self._signaler_source(moniteur)
                     shot = sct.grab(moniteur)
                     self.on_frame(self._en_bgr(shot))
                     # Reste à dormir pour tenir la cadence ; jamais négatif.
@@ -82,6 +95,34 @@ class MssCapture:
         finally:
             if self.on_stop is not None:
                 self.on_stop()
+
+    def _signaler_source(self, moniteur):
+        """Émet la géométrie du moniteur capturé vers le thread Qt (si branché).
+
+        Tuple (left, top, width, height) : c'est ce que la fenêtre du cadre
+        positionnera. On passe par le callback, jamais par un widget en direct
+        — le câblage (__main__) le connecte à un signal Qt, dont la livraison
+        inter-thread est mise en file par PySide6.
+        """
+        if self.on_source is None:
+            return
+        self.on_source(
+            (moniteur["left"], moniteur["top"], moniteur["width"], moniteur["height"])
+        )
+
+    def nombre_ecrans(self):
+        """Compte les écrans physiques (hors union monitors[0]).
+
+        Appelé depuis le thread Qt À LA CONSTRUCTION de l'overlay, AVANT que
+        « boucler » n'ouvre sa propre instance mss : les deux instances ne
+        coexistent donc jamais, la contrainte « mss non thread-safe » tient.
+        L'overlay s'en sert pour griser le bouton source quand il n'y a rien à
+        basculer (un seul écran).
+        """
+        import mss
+
+        with mss.MSS() as sct:
+            return len(sct.monitors) - 1  # hors union monitors[0]
 
     @staticmethod
     def _en_bgr(shot):

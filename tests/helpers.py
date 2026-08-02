@@ -126,6 +126,11 @@ class FauxSortie:
     def __init__(self):
         self.tranches = 0
         self.ferme = False
+        # Journal des appels de fin de vie, dans l'ordre : on veut distinguer
+        # une fin de phrase VIDANGÉE (« stop » avant « close » : PortAudio joue
+        # les derniers échantillons) d'une coupure NETTE (« close » seul, son
+        # abandonné). C'est le cœur du bug « fin de phrase avalée » sur WASAPI.
+        self.journal = []
 
     def start(self):
         pass
@@ -134,10 +139,11 @@ class FauxSortie:
         self.tranches += 1
 
     def stop(self):
-        pass
+        self.journal.append("stop")
 
     def close(self):
         self.ferme = True
+        self.journal.append("close")
 
 
 CLIQUETIS = {

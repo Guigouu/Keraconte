@@ -33,6 +33,7 @@ def _overlay(
     reselectionner=lambda: None,
     fermer=lambda: None,
     vitesse=None,
+    nb_ecrans=None,
 ):
     from keraconte.overlay import Overlay
 
@@ -42,6 +43,7 @@ def _overlay(
         reselectionner=reselectionner,
         fermer=fermer,
         vitesse=vitesse if vitesse is not None else Vitesse(1.22),
+        nb_ecrans=nb_ecrans,
     )
 
 
@@ -77,6 +79,183 @@ def test_le_bouton_source_declenche_la_reselection(app):
     overlay.on_source()
     assert appels == [True]
     assert state.etat is Etat.ACTIF  # la re-sélection n'est pas une transition
+
+
+def test_le_bouton_source_est_grise_avec_un_seul_ecran(app):
+    """Un seul écran : rien à basculer, le bouton source est grisé.
+
+    C'est la réponse directe à « je ne savais pas si ça changeait quelque
+    chose » : quand il n'y a rien à changer, le bouton le montre en étant
+    désactivé, au lieu de rester cliquable dans le vide.
+    """
+    overlay = _overlay(PlayerState(), nb_ecrans=1)
+    assert overlay.bouton_source.isEnabled() is False
+
+
+def test_le_bouton_source_reste_actif_avec_plusieurs_ecrans(app):
+    """Deux écrans (ou plus) : le bouton source reste cliquable."""
+    overlay = _overlay(PlayerState(), nb_ecrans=2)
+    assert overlay.bouton_source.isEnabled() is True
+
+
+def test_le_bouton_source_actif_quand_nb_ecrans_inconnu(app):
+    """nb_ecrans=None (Linux/portail, ou non fourni) : bouton actif, inchangé.
+
+    Le grisage ne concerne que le cas mono-écran mss connu. Sans info (backend
+    portail Linux, où la re-sélection a toujours du sens), on ne grise pas.
+    """
+    overlay = _overlay(PlayerState(), nb_ecrans=None)
+    assert overlay.bouton_source.isEnabled() is True
+
+
+def test_flash_source_affiche_un_cadre_sur_l_ecran_capture(app):
+    """Le signal flash_source crée une fenêtre-cadre sur l'écran capturé.
+
+    Le backend émet la géométrie PHYSIQUE (mss) ; l'overlay la remappe vers le
+    QScreen correspondant et dessine le cadre sur SA géométrie logique (voir
+    _ecran_pour_rect_physique). On vérifie donc qu'un cadre existe et épouse un
+    écran RÉEL, pas la géométrie brute émise (qui divergerait sous échelle).
+    """
+    from PySide6.QtGui import QGuiApplication
+
+    overlay = _overlay(PlayerState(), nb_ecrans=2)
+    overlay.flash_source.emit((0, 0, 640, 480))
+    cadre = overlay._cadre  # la fenêtre-cadre en cours
+    assert cadre is not None
+    geo = cadre.geometry()
+    # Le cadre épouse la géométrie logique d'un des écrans Qt.
+    geos_ecrans = [
+        (e.geometry().x(), e.geometry().y(), e.geometry().width(), e.geometry().height())
+        for e in QGuiApplication.screens()
+    ]
+    assert (geo.x(), geo.y(), geo.width(), geo.height()) in geos_ecrans
+
+
+def test_le_cadre_peint_reellement_une_bordure_cyan(app):
+    """Le cadre DESSINE : un bord cyan, un centre vide (transparent).
+
+    Sans ce test, un widget transparent dont « paintEvent » ne serait jamais
+    dispatché passerait tous les autres tests tout en restant INVISIBLE en jeu
+    (même classe de bug que « démarre bien, muet à l'usage »). On rend le widget
+    dans un QPixmap et on inspecte deux pixels : un sur le bord, un au centre.
+    """
+    from keraconte.overlay import FlashCadre
+
+    cadre = FlashCadre(0, 0, 200, 120)
+    pix = cadre.grab()  # peint le widget hors écran, dispatche paintEvent
+    bord = pix.toImage().pixelColor(3, 60)  # dans l'épaisseur du bord gauche
+    centre = pix.toImage().pixelColor(100, 60)  # plein milieu, hors bordure
+    # Bord cyan franc (0,200,255) ; on tolère l'antialiasing par des seuils.
+    assert bord.blue() > 150 and bord.green() > 120 and bord.red() < 80
+    # Centre non peint : pas de cyan opaque au milieu.
+    assert not (centre.blue() > 150 and centre.green() > 120)
+    cadre.close()
+
+
+def test_flash_source_traverse_le_signal_depuis_un_autre_thread(app):
+    """Émettre flash_source depuis un AUTRE thread est livré, en file, au thread Qt.
+
+    C'est la raison d'être du signal : le backend de capture tourne sur son
+    propre thread. On émet depuis un thread séparé (aucun cadre ne doit être créé
+    hors thread Qt), puis on pompe la boucle d'événements sur le thread principal
+    — c'est LÀ que le slot doit s'exécuter et créer le cadre.
+    """
+    import threading
+
+    from PySide6.QtWidgets import QApplication
+
+    overlay = _overlay(PlayerState(), nb_ecrans=2)
+
+    def emettre():
+        overlay.flash_source.emit((10, 10, 320, 240))
+
+    fil = threading.Thread(target=emettre)
+    fil.start()
+    fil.join()
+    # Avant de pomper : le slot ne s'est PAS exécuté (livraison en file).
+    assert overlay._cadre is None
+    QApplication.processEvents()  # traite la file : le slot crée le cadre ICI
+    assert overlay._cadre is not None  # le slot s'est bien exécuté côté Qt
+
+
+class _FauxRect:
+    def __init__(self, x, y, w, h):
+        self._x, self._y, self._w, self._h = x, y, w, h
+
+    def x(self):
+        return self._x
+
+    def y(self):
+        return self._y
+
+    def width(self):
+        return self._w
+
+    def height(self):
+        return self._h
+
+
+class _FauxEcran:
+    """Tient le rôle d'un QScreen : géométrie LOGIQUE + facteur d'échelle."""
+
+    def __init__(self, x, y, w, h, dpr):
+        self._geo = _FauxRect(x, y, w, h)
+        self._dpr = dpr
+
+    def geometry(self):
+        return self._geo
+
+    def devicePixelRatio(self):
+        return self._dpr
+
+
+def test_le_rect_physique_mss_retrouve_le_bon_ecran_avec_echelle():
+    """La géométrie mss (pixels physiques) mappe le bon QScreen à 150 %.
+
+    Sans ce mapping, un cadre posé aux coordonnées mss brutes atterrit sur le
+    mauvais écran quand Windows applique une échelle : l'écran 2 est à x=2560
+    physique mais x≈1707 logique. On vérifie qu'un rect physique à left=2560
+    choisit bien l'écran 2, pas l'écran 1.
+    """
+    from keraconte.overlay import _ecran_pour_rect_physique
+
+    # Écran 1 : logique (0,0,1707,960) à 150 % → physique (0,0,2560,1440).
+    # Écran 2 : logique (1707,0,1707,960) à 150 % → physique (2560,0,...).
+    ecran1 = _FauxEcran(0, 0, 1707, 960, 1.5)
+    ecran2 = _FauxEcran(1707, 0, 1707, 960, 1.5)
+    ecrans = [ecran1, ecran2]
+
+    # mss émet la géométrie PHYSIQUE de l'écran 2.
+    choisi = _ecran_pour_rect_physique((2560, 0, 2560, 1440), ecrans)
+    assert choisi is ecran2
+
+    # Et l'écran 1 physique (left=0) doit choisir l'écran 1.
+    assert _ecran_pour_rect_physique((0, 0, 2560, 1440), ecrans) is ecran1
+
+
+def test_le_rect_physique_sans_ecran_renvoie_none():
+    """Liste d'écrans vide (headless) : pas de crash, on renvoie None."""
+    from keraconte.overlay import _ecran_pour_rect_physique
+
+    assert _ecran_pour_rect_physique((0, 0, 100, 100), []) is None
+
+
+def test_un_timer_perime_ne_ferme_pas_le_cadre_recent(app):
+    """Le timer d'un flash remplacé ne doit PAS fermer le cadre suivant.
+
+    Deux flashs rapprochés : le 2e remplace le 1er. Quand le timer du 1er échoit,
+    « _fermer_flash(cadre1) » ne doit rien faire — cadre1 n'est plus l'actif —
+    sinon le 2e cadre disparaîtrait trop tôt. Même garde que la génération audio.
+    """
+    overlay = _overlay(PlayerState(), nb_ecrans=2)
+    overlay.flash_source.emit((0, 0, 100, 100))
+    cadre1 = overlay._cadre
+    overlay.flash_source.emit((50, 50, 100, 100))  # remplace cadre1
+    cadre2 = overlay._cadre
+    assert cadre2 is not cadre1
+    # Le timer PÉRIMÉ de cadre1 échoit : il ne doit pas toucher cadre2.
+    overlay._fermer_flash(cadre1)
+    assert overlay._cadre is cadre2  # le cadre récent survit
 
 
 def test_le_bouton_fermer_declenche_la_fermeture(app):

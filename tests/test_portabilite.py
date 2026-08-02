@@ -219,6 +219,102 @@ def test_mss_reselection_change_de_moniteur_a_l_iteration_suivante():
     assert grabs[1]["left"] == 64
 
 
+def test_mss_on_source_emet_la_geometrie_du_moniteur_cible():
+    """on_source reçoit (left, top, width, height) du moniteur capturé.
+
+    C'est le contrat du retour visuel : le thread de capture est le SEUL à
+    connaître le moniteur ciblé, il l'émet vers le thread Qt (qui dessine le
+    cadre). On l'émet à la 1re capture (baseline) puis à chaque changement.
+    """
+    faux_mss, _ = _faux_mss(largeur=64, hauteur=48, nb_ecrans=2)
+    with mock.patch.dict(sys.modules, {"mss": faux_mss}):
+        from keraconte.capture_mss import MssCapture
+
+        sources = []
+        cap = MssCapture(
+            lambda f: None, _args_capture(), on_source=lambda g: sources.append(g)
+        )
+        etat = {"n": 0}
+
+        def au_frame(_frame):
+            etat["n"] += 1
+            if etat["n"] == 1:
+                cap.demander_reselection()
+            elif etat["n"] >= 2:
+                cap.arreter()
+
+        cap.on_frame = au_frame
+        cap.boucler()
+
+    # Baseline sur l'écran 1 (left=0), puis écran 2 (left=64) après re-sélection.
+    assert sources[0] == (0, 0, 64, 48)
+    assert sources[-1] == (64, 0, 64, 48)
+
+
+def test_mss_on_source_ne_reemets_pas_sans_changement():
+    """Sans re-sélection, on_source n'est émis qu'UNE fois (la baseline).
+
+    Émettre à chaque image ferait clignoter le cadre en boucle : le retour ne
+    part qu'au démarrage et sur changement réel, pas à chaque grab.
+    """
+    faux_mss, _ = _faux_mss(largeur=64, hauteur=48, nb_ecrans=2)
+    with mock.patch.dict(sys.modules, {"mss": faux_mss}):
+        from keraconte.capture_mss import MssCapture
+
+        sources = []
+        cap = MssCapture(
+            lambda f: None, _args_capture(), on_source=lambda g: sources.append(g)
+        )
+        etat = {"n": 0}
+
+        def au_frame(_frame):
+            etat["n"] += 1
+            if etat["n"] >= 3:  # trois captures, aucune re-sélection
+                cap.arreter()
+
+        cap.on_frame = au_frame
+        cap.boucler()
+
+    assert len(sources) == 1  # une seule émission malgré trois images
+
+
+def test_mss_on_source_optionnel_ne_casse_pas_la_boucle():
+    """on_source=None (défaut) : la boucle capture sans lever, comme on_stop."""
+    faux_mss, _ = _faux_mss()
+    with mock.patch.dict(sys.modules, {"mss": faux_mss}):
+        from keraconte.capture_mss import MssCapture
+
+        cap = MssCapture(lambda f: None, _args_capture())  # pas d'on_source
+
+        def au_frame(_frame):
+            cap.arreter()
+
+        cap.on_frame = au_frame
+        cap.boucler()  # ne doit pas lever
+
+
+def test_mss_nombre_ecrans_expose_pour_le_grisage():
+    """nombre_ecrans() renvoie le compte d'écrans physiques (hors union[0]).
+
+    L'overlay grise le bouton source quand il n'y a qu'un écran : il lui faut
+    ce compte. mss n'est ouvert que dans le thread de capture, donc on lit les
+    moniteurs via une instance mss courte, hors boucle.
+    """
+    faux_mss, _ = _faux_mss(nb_ecrans=1)
+    with mock.patch.dict(sys.modules, {"mss": faux_mss}):
+        from keraconte.capture_mss import MssCapture
+
+        cap = MssCapture(lambda f: None, _args_capture())
+        assert cap.nombre_ecrans() == 1
+
+    faux_mss2, _ = _faux_mss(nb_ecrans=3)
+    with mock.patch.dict(sys.modules, {"mss": faux_mss2}):
+        from keraconte.capture_mss import MssCapture
+
+        cap = MssCapture(lambda f: None, _args_capture())
+        assert cap.nombre_ecrans() == 3
+
+
 def test_le_vrai_mss_expose_bien_MSS():
     """La classe « mss.MSS » que « boucler » appelle existe dans le vrai paquet.
 

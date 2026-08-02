@@ -41,6 +41,32 @@ def _borner_echelle(valeur):
     return round(max(ECHELLE_MIN, min(ECHELLE_MAX, valeur)), 2)
 
 
+def _ecran_pour_rect_physique(rect_physique, ecrans):
+    """Retrouve le QScreen dont la géométrie PHYSIQUE matche le rect mss émis.
+
+    mss donne des coordonnées en pixels physiques ; Qt raisonne en pixels
+    logiques (géométrie ÷ devicePixelRatio). On reconstruit la géométrie
+    physique de chaque écran (« geometry() × devicePixelRatio ») et l'on choisit
+    celui dont le coin haut-gauche est le plus proche du (left, top) émis — la
+    correspondance d'origine suffit à identifier l'écran, sans dépendre d'un
+    arrondi exact de taille. Renvoie None si la liste est vide (headless).
+
+    Isolé du slot pour être testable sans vrai serveur d'affichage : « ecrans »
+    est une liste d'objets à « geometry() » et « devicePixelRatio() ».
+    """
+    left, top, _w, _h = rect_physique
+    meilleur, meilleure_dist = None, None
+    for ecran in ecrans:
+        g = ecran.geometry()
+        dpr = ecran.devicePixelRatio()
+        phys_x = g.x() * dpr
+        phys_y = g.y() * dpr
+        dist = abs(phys_x - left) + abs(phys_y - top)
+        if meilleure_dist is None or dist < meilleure_dist:
+            meilleur, meilleure_dist = ecran, dist
+    return meilleur
+
+
 def _poignee_taille(overlay):
     """Fabrique une poignée qui redimensionne la barre, tardivement (Qt ici).
 
@@ -177,7 +203,9 @@ class Overlay:
     elle tronquait « 9.9× » dès que la barre grandissait.
     """
 
-    def __init__(self, state, couper, reselectionner, fermer, vitesse):
+    def __init__(
+        self, state, couper, reselectionner, fermer, vitesse, nb_ecrans=None
+    ):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import (
             QHBoxLayout,
@@ -189,6 +217,12 @@ class Overlay:
 
         self.state = state
         self.couper = couper
+        # Nombre d'écrans physiques, transmis par le backend mss (None si non
+        # fourni : backend portail Linux, ou tests). Sert UNIQUEMENT à griser le
+        # bouton source quand il n'y a qu'un écran — rien à basculer.
+        self.nb_ecrans = nb_ecrans
+        # Fenêtre-cadre du retour visuel, vivante seulement pendant le flash.
+        self._cadre = None
         # La re-sélection et la fermeture ne sont PAS des transitions d'état de
         # lecture : elles ne passent pas par PlayerState (qui reste le seul
         # découplage de la lecture), mais par des callbacks à part, comme
@@ -334,6 +368,17 @@ class Overlay:
         self._largeurs_base = [LARGEUR_BOUTON for _ in self._boutons_echelle]
         self._appliquer_echelle()  # pose la largeur fixe du label à l'échelle 1
 
+        # Retour visuel de la source : le backend de capture (autre thread)
+        # émet la géométrie du moniteur ciblé. On PASSE PAR UN SIGNAL Qt et non
+        # par un appel direct : « flash_source.emit » posté depuis le thread de
+        # capture est mis en file par PySide6 et le slot s'exécute sur le thread
+        # Qt (le seul autorisé à créer un widget). Un appel direct au widget
+        # depuis l'autre thread serait la même faute que fermer un OutputStream
+        # inter-thread (segfault) — d'où le pont QObject.
+        self._pont = _PontSource()
+        self.flash_source = self._pont.flash_source
+        self.flash_source.connect(self._montrer_flash)
+
         self._rafraichir()
 
     def _changer_echelle(self, valeur):
@@ -413,6 +458,54 @@ class Overlay:
         """Rouvre le sélecteur de source (fenêtre ou écran)."""
         self.reselectionner()
 
+    def _montrer_flash(self, geometrie):
+        """Affiche 2 s un cadre autour du moniteur capturé (slot du thread Qt).
+
+        Reçu via « flash_source » : le backend (autre thread) a émis la
+        géométrie, PySide6 a mis l'appel en file, on est donc bien sur le thread
+        Qt ici et créer un widget est légal. On remplace tout cadre encore
+        affiché (double clic rapide) pour ne pas empiler les fenêtres.
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtGui import QGuiApplication
+
+        # mss émet des pixels PHYSIQUES ; QWidget.setGeometry attend des pixels
+        # LOGIQUES. Sous Windows à 125/150 % d'échelle, les deux divergent : un
+        # écran physique à left=2560 devient logique ~1707, et un cadre posé
+        # avec les coordonnées mss atterrirait sur le mauvais écran, voire hors
+        # champ. On retrouve donc le QScreen qui correspond au rect physique et
+        # on dessine le cadre sur SA géométrie logique.
+        ecran = _ecran_pour_rect_physique(geometrie, QGuiApplication.screens())
+        if ecran is not None:
+            g = ecran.geometry()  # déjà en pixels logiques
+            left, top, width, height = g.x(), g.y(), g.width(), g.height()
+        else:
+            # Aucun écran Qt ne matche (cas dégénéré/headless) : on retombe sur
+            # les coordonnées mss brutes — mieux qu'aucun cadre.
+            left, top, width, height = geometrie
+        if self._cadre is not None:
+            self._cadre.close()
+        cadre = FlashCadre(left, top, width, height)
+        self._cadre = cadre
+        cadre.show()
+        # Auto-fermeture après 2 s : un flash, pas un cadre permanent. On LIE le
+        # cadre visé à la fermeture (« cadre », pas « self._cadre ») : sinon un
+        # second flash lancé avant l'échéance remplacerait « self._cadre », et le
+        # timer du PREMIER fermerait le SECOND trop tôt. On garde une référence
+        # le temps du flash, sinon le GC de Python détruirait le QWidget avant.
+        QTimer.singleShot(2000, lambda: self._fermer_flash(cadre))
+
+    def _fermer_flash(self, cadre):
+        """Ferme CE cadre s'il est encore l'actif (échéance du QTimer, thread Qt).
+
+        Ne ferme que si « cadre » est toujours le cadre courant : un flash plus
+        récent l'a peut-être déjà remplacé (et fermé), auquel cas ce timer périmé
+        ne doit toucher à rien — même garde que la génération de « playback ».
+        """
+        if self._cadre is cadre:
+            cadre.close()
+            self._cadre = None
+
     def on_fermer(self):
         """Ferme l'application (arrêt propre orchestré par __main__)."""
         self.fermer()
@@ -430,7 +523,102 @@ class Overlay:
         self.bouton_reprise.setEnabled(etat is not Etat.ACTIF)
         self.bouton_plus.setEnabled(not self.vitesse.au_maximum())
         self.bouton_moins.setEnabled(not self.vitesse.au_minimum())
+        # Un seul écran (mss) : rien à basculer, on grise le bouton source pour
+        # qu'il ne reste pas cliquable dans le vide. nb_ecrans=None (portail
+        # Linux, où re-sélectionner garde du sens) laisse le bouton actif.
+        un_seul_ecran = self.nb_ecrans == 1
+        self.bouton_source.setEnabled(not un_seul_ecran)
+        # Le tooltip ne doit pas promettre ce qu'un bouton grisé ne fera pas.
+        self.bouton_source.setToolTip(
+            "Un seul écran : rien à changer"
+            if un_seul_ecran
+            else "Choisir la fenêtre ou l'écran à lire"
+        )
         self.label_vitesse.setText(f"{self.vitesse.valeur:.1f}×")
 
     def show(self):
         self.widget.show()
+
+
+class _PontSource:
+    """Porteur du signal « flash_source », construit tardivement (QObject Qt).
+
+    On ne peut pas mettre un « Signal » sur « Overlay » : ce n'est pas un
+    QObject (il COMPOSE un QWidget, il n'en hérite pas). Ce petit pont EST un
+    QObject et porte le signal ; « Overlay » expose « .flash_source ». Le
+    backend de capture reçoit « flash_source.emit » comme callback : émis depuis
+    le thread de capture, PySide6 met la livraison en file jusqu'au thread Qt.
+    """
+
+    def __new__(cls):
+        from PySide6.QtCore import QObject, Signal
+
+        # QObject/Signal sont importés tardivement (comme le reste de l'overlay)
+        # : on fabrique la classe ici pour ne pas exiger PySide6 à l'import du
+        # module. Le signal transporte un tuple (left, top, width, height).
+        if not hasattr(cls, "_Impl"):
+
+            class _Impl(QObject):
+                flash_source = Signal(tuple)
+
+            cls._Impl = _Impl
+        return cls._Impl()
+
+
+EPAISSEUR_CADRE = 6  # bord du cadre de flash, en pixels
+
+
+def _classe_cadre():
+    """Fabrique (une fois) la sous-classe QWidget qui peint le cadre.
+
+    On sous-classe VRAIMENT QWidget et l'on redéfinit « paintEvent » dans la
+    classe : monkey-patcher « widget.paintEvent = … » sur une instance nue n'est
+    pas garanti d'être dispatché par Qt (le virtuel se résout au niveau classe).
+    Import tardif comme le reste de l'overlay ; classe mémoïsée pour ne pas la
+    reconstruire à chaque flash.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QPainter, QPen
+    from PySide6.QtWidgets import QWidget
+
+    class _Cadre(QWidget):
+        def __init__(self, left, top, width, height):
+            super().__init__()
+            self.setWindowFlags(
+                Qt.FramelessWindowHint
+                | Qt.WindowStaysOnTopHint
+                | Qt.Tool
+                | Qt.WindowTransparentForInput  # cliquable à travers : ne bloque pas le jeu
+            )
+            self.setAttribute(Qt.WA_TranslucentBackground)  # fond transparent
+            self.setGeometry(left, top, width, height)
+
+        def paintEvent(self, _event):
+            """Dessine le seul cadre : un rectangle creux sur tout le pourtour."""
+            peintre = QPainter(self)
+            stylo = QPen(QColor(0, 200, 255))  # cyan franc, bien visible
+            stylo.setWidth(EPAISSEUR_CADRE)
+            peintre.setPen(stylo)
+            # Rétréci d'une demi-épaisseur pour que le trait reste DANS la
+            # fenêtre (un QPen centre le trait ; sans marge il déborderait).
+            demi = EPAISSEUR_CADRE // 2
+            peintre.drawRect(
+                demi,
+                demi,
+                self.width() - EPAISSEUR_CADRE,
+                self.height() - EPAISSEUR_CADRE,
+            )
+            peintre.end()
+
+    return _Cadre
+
+
+def FlashCadre(left, top, width, height):
+    """Fenêtre transparente qui dessine un cadre autour d'un moniteur.
+
+    Retour visuel « voilà ce que je capture » : un rectangle vide à bord épais,
+    sans fond, cliquable à travers (le jeu dessous reste utilisable), always-on
+    -top, sans bordure. Vit ~2 s puis se ferme (piloté par l'overlay via un
+    QTimer). Renvoie un QWidget prêt à « show() ».
+    """
+    return _classe_cadre()(left, top, width, height)

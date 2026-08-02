@@ -135,19 +135,36 @@ class Playback:
                 print(f"lecture audio impossible : {erreur}")
                 return
             self.current = flux
+        coupe = False  # sortie par changement de génération, ou fin naturelle ?
         try:
             for debut in range(0, len(echantillons), taille):
                 # Lecture non verrouillée de la génération, comme
                 # speaker.py:42 : un nouveau dialogue abandonne la lecture.
                 if generation != self.generation:
+                    coupe = True
                     break
                 # Pause : on attend, borné, pour rester réactif à une coupure.
                 while self.state.en_pause and generation == self.generation:
                     self.state.attendre_reprise(timeout=0.1)
                 if generation != self.generation:
+                    coupe = True
                     break
                 flux.write(echantillons[debut : debut + taille])
         finally:
+            # Fin NATURELLE d'une phrase : « stop » vide le tampon restant avant
+            # « close ». Sans lui, « close » peut abandonner les tout derniers
+            # échantillons — inaudible sous PipeWire (petit tampon), mais audible
+            # sur WASAPI (Windows) où la fin de phrase, juste avant le point, est
+            # coupée net. Le flux est fermé par SON PROPRE thread : « stop » ne
+            # franchit aucune frontière inter-thread (contrairement à un close
+            # depuis « bump », qui corromprait le tas — voir ce commentaire).
+            # En cas de COUPURE (bascule/stop), on saute « stop » : on VEUT
+            # couper net, vider ferait traîner un son périmé.
+            if not coupe:
+                try:
+                    flux.stop()
+                except Exception:
+                    pass  # jamais laisser la vidange empêcher la fermeture
             flux.close()
             with self.lock:
                 if self.current is flux:
