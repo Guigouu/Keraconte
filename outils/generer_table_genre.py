@@ -145,6 +145,16 @@ def _textes_messages(ids):
             identifiant = enregistrement.get("id")
             if texte and identifiant is not None:
                 textes[identifiant] = texte
+        # La résolution est LA phase longue (des milliers de lots) : sans ce
+        # battement, elle passait pour un blocage — relevé à l'usage sur un
+        # parcours complet (6097 PNJ, ~1830 lots, muets de bout en bout).
+        interroges = debut + len(lot)
+        if interroges % 2500 < PAGE:
+            print(
+                f"  {interroges}/{len(liste)} ids interrogés, "
+                f"{len(textes)} textes résolus…",
+                file=sys.stderr,
+            )
         time.sleep(max(0.0, PAUSE - (time.monotonic() - temps)))
     return textes
 
