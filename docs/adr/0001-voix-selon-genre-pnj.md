@@ -24,7 +24,7 @@ intuition** (README, « Pas de détection du genre du PNJ » ;
   fixture n'en contenait. Les PNJ disent « Je suis Klako, chasseur », où
   c'est le métier qui porte le genre, pas la grammaire.
 
-Trois choses ont changé depuis cette décision :
+Quatre choses ont changé depuis cette décision :
 
 1. **Le registre de captures a grandi** : d'environ quatre dialogues à une
    trentaine de captures réelles versionnées (`tests/fixtures/dialogues/`,
@@ -42,6 +42,15 @@ Trois choses ont changé depuis cette décision :
    de 0,9 mais une **marge** : le meilleur candidat doit distancer nettement
    le deuxième. C'est plus tolérant au bruit d'OCR, et ça s'abstient de
    lui-même quand rien ne se détache.
+4. **Le genre existe comme donnée structurée dans les données
+   communautaires du jeu.** Vérifié le 2026-08-03 sur l'API DofusDB :
+   `api.dofusdb.fr/npcs/<id>` rend, par PNJ, un champ `gender` (mesuré :
+   Hazel Ementaire — un PNJ de nos propres fixtures — `gender: 1` ;
+   Uk'Not'Allag', id 3223, `gender: 0`), le nom en français, le `look`
+   (apparence) **et les textes de dialogue** (`dialogMessages`,
+   `dialogReplies`). Il n'y a donc rien à *deviner* visuellement pour la
+   masse des PNJ : le genre se lit dans les données ; toute la difficulté
+   restante est d'identifier, au runtime, *quel* PNJ parle.
 
 Le mot « genre » désigne ici le rendu vocal du personnage — voix masculine ou
 féminine — tel que le jeu le présente (nom, titre, accords) : c'est la seule
@@ -55,7 +64,7 @@ l'absence de signal, la voix reste celle d'aujourd'hui, à l'identique. Une
 mauvaise voix est pire que pas d'adaptation ; le critère d'acceptation
 l'encode (zéro erreur tolérée, la couverture est la variable d'ajustement).
 
-Trois signaux, du moins cher au plus cher, combinés en cascade :
+Quatre signaux, du moins cher au plus cher, combinés en cascade :
 
 1. **Lexique genré dans le texte de bulle** (déjà OCRisé, coût nul) :
    auto-désignations dont le français porte le genre — métiers et titres
@@ -66,13 +75,26 @@ Trois signaux, du moins cher au plus cher, combinés en cascade :
    gardés comme signal d'appoint) : « je suis venue », « je suis prête ».
    Rare mais sans ambiguïté quand il est là. Le piège « tu es venue » (qui
    accorde le *joueur*) reste exclu : seules les formes en « je » comptent.
-3. **OCR ciblé du cartouche + table nom → genre embarquée** : recette
-   FINDINGS (crop du parchemin, upscale 4×, `--psm 6`, nettoyage de
-   bordure), rapprochement flou **à marge** contre une table finie générée
-   hors ligne depuis les données communautaires du jeu (licence de la source
-   à vérifier avant d'embarquer). Ce signal n'entre au code **que si la
-   re-mesure sur le registre atteint le critère chiffré** ci-dessous — les
-   ratios de l'abandon font foi tant qu'ils ne sont pas battus.
+3. **Empreinte du dialogue → table PNJ embarquée** (nouveau, coût d'une
+   recherche de dictionnaire). La réplique elle-même identifie son PNJ :
+   les données communautaires portent les textes de dialogue par PNJ
+   (`dialogMessages`, vérifié — voir Contexte), et le texte de bulle est
+   précisément ce que le programme OCRise le mieux — c'est son cœur de
+   métier, étalonné, quand le cartouche est son point faible mesuré. Hors
+   ligne, on génère une table `empreinte de réplique → genre` ; au runtime,
+   l'empreinte tolérante du texte lu (la mécanique existe déjà :
+   `fingerprint`, `word_gap` dans `text.py`, éprouvées contre le bruit
+   d'OCR) se cherche dans la table. Une réplique partagée par des PNJ des
+   deux genres est marquée ambiguë **dans la table** : elle s'abstient par
+   construction.
+4. **OCR ciblé du cartouche + rapprochement de nom** — rétrogradé au rang
+   de repli, pour les répliques absentes de la table (contenu nouveau ou
+   modifié par une mise à jour du jeu) : recette FINDINGS (crop du
+   parchemin, upscale 4×, `--psm 6`, nettoyage de bordure), rapprochement
+   flou **à marge** contre la table des noms. Ce signal n'entre au code
+   **que si la re-mesure sur le registre atteint le critère chiffré**
+   ci-dessous — les ratios de l'abandon font foi tant qu'ils ne sont pas
+   battus. Si le signal 3 couvre assez, celui-ci peut ne jamais embarquer.
 
 Règles de flux :
 
@@ -81,9 +103,15 @@ Règles de flux :
   pour toute la réplique : la voix ne change pas en cours de phrase quand
   l'OCR cligne. La déduplication `same_dialog` garantit déjà un seul `say`
   par réplique — la décision s'y adosse.
-- **Coût borné** : le signal 3 (OCR du cartouche) ne tourne que sur un
-  dialogue *nouveau*, jamais à chaque image. Une réplique = au plus un OCR
-  de cartouche en plus de l'existant.
+- **Coût borné** : le signal 3 est une recherche de dictionnaire ; le
+  signal 4 (OCR du cartouche) ne tourne que sur un dialogue *nouveau*,
+  jamais à chaque image. Une réplique = au plus un OCR de cartouche en plus
+  de l'existant.
+- **Strictement hors ligne au runtime.** La table s'embarque ; aucune
+  requête réseau pendant le jeu. Interroger un service ou un moteur de
+  recherche à la volée enverrait le contenu de l'écran capturé hors de la
+  machine — c'est un interdit du projet, pas un réglage (cf. ADR-0002,
+  rejet des TTS en ligne, mêmes raisons).
 - **Contrat moteur** : le booléen `narration` de `Engine.speak` devient un
   **canal de voix** à trois valeurs — `pnj_masculin`, `pnj_feminin`,
   `narration` — avec `pnj_masculin` comme valeur d'inconnu (comportement
@@ -99,11 +127,13 @@ Règles de flux :
 
 | Option | Sort | Pourquoi |
 |---|---|---|
-| A. Table nom → genre sur OCR brut du cartouche | Rejetée telle quelle | Mesuré à 0,11–0,24 de ratio ; recevable seulement via la recette 4× + psm 6 et le rapprochement à marge — c'est le signal 3, conditionné à la re-mesure |
+| A. Table nom → genre sur OCR brut du cartouche | Rejetée telle quelle | Mesuré à 0,11–0,24 de ratio ; recevable seulement via la recette 4× + psm 6 et le rapprochement à marge — c'est le signal 4, conditionné à la re-mesure |
 | B. Accords grammaticaux seuls | Insuffisant | Mesuré : 0 des 4 dialogues d'origine n'en contient ; gardé en appoint (signal 2) |
 | C. Lexique de métiers/titres genrés | Retenue (signal 1) | Présent dans les fixtures réelles (« chasseur », « L'Explorancienne », « Gardien des Geôles ») ; déterministe, auditable, coût nul |
-| D. Classification du portrait (vision) | Rejetée | Aucune donnée étiquetée, variance forte (thèmes, zoom, angle), coût d'entretien sans commune mesure avec le besoin |
+| D. Classification visuelle du PNJ **à l'écran** (vision, runtime) | Rejetée | Aucune donnée étiquetée, variance forte (thèmes, zoom, angle), coût d'entretien sans commune mesure avec le besoin |
+| D′. Classification visuelle des **skins scrappés**, hors ligne | Source complémentaire de la table | Les viewers communautaires rendent le skin par id de PNJ (p. ex. skin.souff.fr/npc/`id`) : classables hors ligne, avec revue humaine, pour les seules entrées sans champ `gender` fiable. Inutile pour la masse (le champ existe, vérifié) ; et beaucoup de PNJ — démons, créatures, objets parlants — n'ont pas de genre lisible sur l'image : l'abstention s'applique là aussi |
 | E. Assignation manuelle par le joueur | Écartée comme mécanisme principal | Contraire au parti pris du README (« aucune sélection manuelle ») ; reste une échappatoire envisageable plus tard, hors de cette ADR |
+| F. Interroger un moteur de recherche ou un service **au runtime** | Rejetée net | Le runtime est hors ligne par principe : le contenu de l'écran ne sort pas de la machine ; s'ajoutent latence, fragilité (site indisponible = voix qui change), et dépendance de comportement à un tiers |
 
 ## Prérequis de données
 
@@ -117,15 +147,52 @@ Règles de flux :
   `ocr_fixture` existant : mêmes raisons, même discipline (exclus de la CI,
   actifs sur la machine de calibration).
 
+## Génération de la table (hors ligne)
+
+La table embarquée est produite par un **script versionné**, exécuté à la
+main par le mainteneur — jamais en CI, jamais au runtime :
+
+- **Source canonique unique** : l'API communautaire vérifiée
+  (`api.dofusdb.fr/npcs`), qui porte par PNJ le nom, le champ `gender` et
+  les textes de dialogue. On ne croise **jamais** deux sources par id sans
+  vérification : mesuré le 2026-08-03, l'id 3223 désigne « Esra'Ruoy'Dnim »
+  sur le viewer skin.souff.fr et « Uk'Not'Allag' » sur l'API — les espaces
+  d'identifiants divergent entre miroirs et versions du jeu.
+- **Encodage du genre** : relevé `0` = masculin, `1` = féminin (Hazel
+  Ementaire : 1). À confirmer sur un échantillon avant génération, y compris
+  l'éventuelle valeur « sans genre » — qui se traduit par l'abstention.
+- **Ce qui embarque** : des *empreintes* de répliques (`fingerprint`, non
+  réversibles vers le texte) et des noms associés à un genre, avec la
+  provenance (source, date, version du jeu, origine de chaque entrée :
+  donnée / visuel / manuel). On n'embarque **pas** les textes de dialogue
+  du jeu eux-mêmes : la table est un index de faits, pas une copie de
+  contenu.
+- **Complément visuel** (option D′) : pour les seules entrées sans `gender`
+  fiable, classification hors ligne du skin rendu par le viewer
+  communautaire, **revue humaine systématique** avant d'entrer dans la
+  table. Un démon ailé n'a pas de genre lisible sur l'image : l'abstention
+  vaut aussi pour l'étiqueteur.
+- **Tenue** : cadence de collecte polie (cache local, débit limité),
+  conditions d'utilisation de la source vérifiées avant d'embarquer, et
+  procédure de régénération documentée — la table se périme à chaque mise à
+  jour du jeu, c'est le signal 4 (cartouche) ou l'abstention qui couvrent
+  l'écart entre deux régénérations.
+
 ## Critères d'acceptation
 
-Mesurés sur le registre étiqueté, *avant* d'engager le code du signal 3 :
+Mesurés sur le registre étiqueté, *avant* d'engager le code des signaux 3
+et 4 :
 
 - **Zéro erreur de genre.** Toute erreur se corrige en resserrant le seuil
   (donc en s'abstenant), jamais en l'admettant.
-- **Couverture initiale ≥ 50 %** des dialogues à cartouche visible pour le
-  signal 3 (rapprochement à marge) ; en deçà, le signal reste hors code et
-  seuls les signaux 1–2 embarquent.
+- **Signal 3 (table par empreinte de dialogue) : ≥ 80 % des répliques du
+  registre résolues.** La table est générée depuis les textes mêmes du jeu
+  et l'empreinte est déjà éprouvée contre le bruit d'OCR (`same_dialog`) :
+  si la résolution tombe sous ce seuil, c'est la génération ou l'empreinte
+  qui a un défaut à comprendre d'abord.
+- **Signal 4 (cartouche) : couverture ≥ 50 %** des dialogues à cartouche
+  visible non couverts par la table ; en deçà, ce signal reste hors code —
+  les signaux 1–3 suffisent ou l'on s'abstient.
 - **Coût** : ≤ un OCR de région de cartouche par nouveau dialogue, mesuré en
   millisecondes via `QR_DEBUG` comme les mesures existantes.
 - **Aucune régression** : la suite actuelle passe inchangée ; une réplique
@@ -139,9 +206,10 @@ Mesurés sur le registre étiqueté, *avant* d'engager le code du signal 3 :
 - Une **voix féminine de dialogue** doit exister par moteur sans entrer en
   collision avec la voix de narration — c'est le premier livrable de
   l'ADR-0002, dont cette ADR dépend.
-- La table nom → genre embarquée ajoute un artefact au bundle (spec
-  PyInstaller) et une provenance à documenter (source, licence, date de
-  génération, script de régénération hors ligne).
+- La table embarquée (empreintes de répliques et noms → genre) ajoute un
+  artefact au bundle (spec PyInstaller), un script de génération hors ligne
+  au dépôt, et une provenance à documenter (source, licence, date, version
+  du jeu).
 - Le registre de fixtures grandit encore : c'est assumé, il est déjà le
   socle de toutes les décisions de détection.
 
@@ -163,4 +231,10 @@ Mesurés sur le registre étiqueté, *avant* d'engager le code du signal 3 :
   genre ».
 - `FINDINGS.md` (recette cartouche : upscale 4× + `--psm 6`).
 - `tests/helpers.py` (registre `SAMPLES` et fixtures étiquetées à la main).
+- `api.dofusdb.fr/npcs` — champs `gender`, `name`, `dialogMessages`
+  vérifiés le 2026-08-03 (id 3223 : `gender: 0` ; « Hazel Ementaire »,
+  id 4313 : `gender: 1`).
+- `skin.souff.fr/npc/<id>` — viewer communautaire de skins, source du
+  complément visuel D′ (rendu client-side : passer par son API ou les
+  assets, pas par le HTML).
 - ADR-0002 (catalogue de voix : affectation des canaux).
