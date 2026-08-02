@@ -9,6 +9,7 @@ surtout pourquoi, pour qu'on puisse y revenir sans réexcaver les mesures.
 |---|---|---|
 | [0001](0001-voix-selon-genre-pnj.md) | Adapter la voix au genre du PNJ | Proposé |
 | [0002](0002-catalogue-de-voix.md) | Élargir le catalogue de voix et gagner en naturel | Proposé |
+| [0003](0003-lecture-par-texte-canonique.md) | Lecture par texte canonique : l'OCR devient une clé d'index | Proposé |
 
 Statuts : **Proposé** (en discussion), **Accepté** (fait foi), **Remplacé
 par N** (l'ADR N prend le relais), **Refusé** (gardé pour mémoire des

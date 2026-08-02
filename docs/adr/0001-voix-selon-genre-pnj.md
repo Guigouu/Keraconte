@@ -123,6 +123,42 @@ Règles de flux :
   canaux », qui interdit de réutiliser la voix de narration pour les PNJ
   féminins) relève de l'ADR-0002.
 
+### Mécanique d'association (signal 3)
+
+Comment la réplique à l'écran retrouve *son* PNJ dans les données —
+entièrement automatique, sans geste du joueur. La chaîne de données est
+**vérifiée** (2026-08-03) :
+
+- `/npcs` (paginé) rend, par PNJ : nom, `gender`, et `dialogMessages` —
+  des **paires d'identifiants**, pas des textes (Hazel :
+  `[[30730, 750413], [30737, 750428], …]`).
+- `/npc-messages/<id>` résout la paire en texte français (vérifié :
+  `GET 30730` → « Après avoir passé des années dans la solitude, je me
+  retrouve ici, à Astrub… », id métier 750413 rendu — la sémantique exacte
+  des deux membres de la paire est à figer dans le script de génération).
+- Les textes portent des **placeholders** `#N` remplis par le jeu à
+  l'affichage (vérifié : « Je suis un des #5 Percepteurs de la guilde
+  #1. ») : neutralisés en jokers à la génération.
+
+Construction hors ligne : chaque texte est normalisé **par la même
+fonction que le runtime** — le vocabulaire de `word_gap` (mots de trois
+lettres et plus, minuscules) — puis ses jetons sont **hachés** (32 bits) :
+suffisant pour un score ensembliste, non réversible vers le texte. Il en
+sort un index inversé `jeton → entrées`, chaque entrée portant {jetons
+hachés, genre, drapeau ambigu}.
+
+Au runtime, à `_dire` : jetons du texte lu → candidats par jetons rares →
+score `word_gap` → le meilleur doit passer **un seuil ET une marge** sur le
+deuxième ; sinon abstention. La faisabilité n'est pas une hypothèse, c'est
+une mesure déjà dans le dépôt (`text.py`) : deux lectures OCR d'un même
+texte s'écartent de 0,00 à 0,31, deux textes distincts de 1,86 à 4,11 — et
+la base est plus propre qu'une seconde lecture OCR, l'écart ne peut être
+que meilleur. Coût : quelques recherches de dictionnaire par *nouveau*
+dialogue.
+
+Cette association sert la voix ici ; l'ADR-0003 en tire davantage (lire le
+texte canonique lui-même).
+
 ## Options étudiées
 
 | Option | Sort | Pourquoi |
