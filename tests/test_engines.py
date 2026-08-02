@@ -12,9 +12,26 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from keraconte.engines import build_engine, check_xtts  # noqa: E402
 from keraconte.engines.piper import PiperEngine  # noqa: E402
 from keraconte.engines.xtts import XttsEngine, voice_argument  # noqa: E402
+from keraconte.genre import Canal  # noqa: E402
 from keraconte.playback import playback  # noqa: E402
 from keraconte.speed import Vitesse  # noqa: E402
 from tests.helpers import faux_xtts  # noqa: E402
+
+# Trois canaux (ADR-0001/0002). Dans les tests Piper, la féminine partage le
+# fichier masculin : on éprouve le câblage des canaux, pas les fichiers.
+VOIX_PIPER = {
+    Canal.PNJ_MASCULIN: "x",
+    Canal.PNJ_FEMININ: "x",
+    Canal.NARRATION: "y",
+}
+
+
+def voix_xtts(dialogue, narration, feminine=None):
+    return {
+        Canal.PNJ_MASCULIN: dialogue,
+        Canal.PNJ_FEMININ: feminine or dialogue,
+        Canal.NARRATION: narration,
+    }
 
 
 def faux_piper(rendus):
@@ -39,8 +56,9 @@ def faux_piper(rendus):
             sortie.setframerate(22050)
             sortie.writeframes(b"\x00\x00")
 
-    def faux_config(length_scale):
+    def faux_config(length_scale, speaker_id=None):
         rendus["length_scale"] = length_scale
+        rendus["speaker_id"] = speaker_id
         return None
 
     faux_module = types.ModuleType("piper")
@@ -76,7 +94,7 @@ def faux_piper_suite(rendus, apres_phrase=None):
             if apres_phrase is not None:
                 apres_phrase(self._rang)
 
-    def faux_config(length_scale):
+    def faux_config(length_scale, speaker_id=None):
         rendus.setdefault("scales", []).append(length_scale)
         return None
 
@@ -106,9 +124,9 @@ def test_piper_relit_la_vitesse_entre_deux_phrases():
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
         "keraconte.engines.piper.play_wave"
     ):
-        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse, 0)
+        moteur = PiperEngine(VOIX_PIPER, vitesse, 0)
         moteur.speak(
-            "Bonjour. Rebonjour.", narration=False, generation=playback.generation
+            "Bonjour. Rebonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation
         )
 
     scales = rendus["scales"]
@@ -136,8 +154,8 @@ def test_piper_pause_entre_phrases_pas_apres_la_derniere(texte, pauses_attendues
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
         "keraconte.engines.piper.play_wave"
     ), mock.patch("keraconte.engines.piper.time.sleep") as dors:
-        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse=Vitesse(1.0), pause=320)
-        moteur.speak(texte, narration=False, generation=playback.generation)
+        moteur = PiperEngine(VOIX_PIPER, vitesse=Vitesse(1.0), pause=320)
+        moteur.speak(texte, canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     assert dors.call_count == pauses_attendues
 
@@ -153,8 +171,8 @@ def test_speed_accelere_les_deux_moteurs():
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
         "keraconte.engines.piper.play_wave"
     ):
-        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, Vitesse(1.25), 0)
-        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        moteur = PiperEngine(VOIX_PIPER, Vitesse(1.25), 0)
+        moteur.speak("Bonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     # Un débit de 1.25 doit raccourcir la durée, non l'allonger.
     assert rendus["length_scale"] == pytest.approx(0.8)
@@ -174,11 +192,11 @@ def test_piper_relit_la_vitesse_a_chaud():
     with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
         "keraconte.engines.piper.play_wave"
     ):
-        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, vitesse, 0)
-        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        moteur = PiperEngine(VOIX_PIPER, vitesse, 0)
+        moteur.speak("Bonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
         assert rendus["length_scale"] == pytest.approx(1.0)  # 1/1.0
         vitesse.augmenter()  # 1.0 → 1.1
-        moteur.speak("Rebonjour.", narration=False, generation=playback.generation)
+        moteur.speak("Rebonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     assert rendus["length_scale"] == pytest.approx(1 / 1.1)
 
@@ -192,7 +210,7 @@ def test_xtts_pose_la_rustine_isin_mps_friendly():
     """
     modules, pu = faux_xtts({})
     with mock.patch.dict(sys.modules, modules):
-        XttsEngine({"dialogue": "a.wav", "narration": "b.wav"}, Vitesse(1.0))
+        XttsEngine(voix_xtts("a.wav", "b.wav"), Vitesse(1.0))
         assert hasattr(pu, "isin_mps_friendly")
         elements, test_elements = pu.isin_mps_friendly(
             elements="e", test_elements="t"
@@ -210,13 +228,13 @@ def test_xtts_decoupe_par_phrases_et_choisit_la_voix():
     modules, _ = faux_xtts(rendus)
     with mock.patch.dict(sys.modules, modules):
         moteur = XttsEngine(
-            {"dialogue": "pnj.wav", "narration": "didascalie.wav"}, Vitesse(1.15)
+            voix_xtts("pnj.wav", "didascalie.wav"), Vitesse(1.15)
         )
         moteur.speak(
-            "Bienvenue ! Approche-toi.", narration=False, generation=playback.generation
+            "Bienvenue ! Approche-toi.", canal=Canal.PNJ_MASCULIN, generation=playback.generation
         )
         moteur.speak(
-            "se racle la gorge", narration=True, generation=playback.generation
+            "se racle la gorge", canal=Canal.NARRATION, generation=playback.generation
         )
 
     appels = rendus["appels"]
@@ -245,8 +263,8 @@ def test_xtts_ne_synthetise_pas_un_segment_vide():
     rendus = {}
     modules, _ = faux_xtts(rendus)
     with mock.patch.dict(sys.modules, modules):
-        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, Vitesse(1.0))
-        moteur.speak("...", narration=False, generation=playback.generation)
+        moteur = XttsEngine(voix_xtts("a", "b"), Vitesse(1.0))
+        moteur.speak("...", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     assert rendus.get("appels", []) == []
 
@@ -261,10 +279,10 @@ def test_xtts_relit_la_vitesse_a_chaud():
     modules, _ = faux_xtts(rendus)
     vitesse = Vitesse(1.0)
     with mock.patch.dict(sys.modules, modules):
-        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, vitesse)
-        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        moteur = XttsEngine(voix_xtts("a", "b"), vitesse)
+        moteur.speak("Bonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
         vitesse.augmenter()  # 1.0 → 1.1
-        moteur.speak("Rebonjour.", narration=False, generation=playback.generation)
+        moteur.speak("Rebonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     vitesses = [appel["speed"] for appel in rendus["appels"]]
     assert vitesses == [pytest.approx(1.0), pytest.approx(1.1)]
@@ -305,15 +323,19 @@ def test_kokoro_relit_la_vitesse_a_chaud():
         "keraconte.engines.kokoro.play_wave"
     ):
         moteur = KokoroEngine(vitesse)
-        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        moteur.speak("Bonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
         vitesse.augmenter()  # 1.0 → 1.1
-        moteur.speak("Rebonjour.", narration=False, generation=playback.generation)
+        moteur.speak("Rebonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     assert rendus["speeds"] == [pytest.approx(1.0), pytest.approx(1.1)]
 
 
 def args_xtts(**extra):
-    defauts = {"voice_sample": "Damien Black", "narration_sample": "Sofia Hellen"}
+    defauts = {
+        "voice_sample": "Damien Black",
+        "feminine_sample": "Ana Florence",
+        "narration_sample": "Sofia Hellen",
+    }
     return types.SimpleNamespace(**{**defauts, **extra})
 
 
@@ -385,7 +407,11 @@ def test_build_engine_route_vers_xtts():
     rendus = {}
     modules, _ = faux_xtts(rendus)
     args = types.SimpleNamespace(
-        engine="xtts", speed=1.15, voice_sample="pnj.wav", narration_sample="dida.wav"
+        engine="xtts",
+        speed=1.15,
+        voice_sample="pnj.wav",
+        feminine_sample="fem.wav",
+        narration_sample="dida.wav",
     )
     with mock.patch.dict(sys.modules, modules):
         moteur = build_engine(args, Vitesse(args.speed))
@@ -427,8 +453,8 @@ def test_piper_ecrit_puis_rejoue_par_nom_un_fichier_existant():
         "keraconte.engines.piper.play_wave",
         side_effect=lambda path, gen: vus.append((path, os.path.getsize(path))),
     ):
-        moteur = PiperEngine({"dialogue": "x", "narration": "y"}, Vitesse(1.0), 0)
-        moteur.speak("Bonjour.", narration=False, generation=playback.generation)
+        moteur = PiperEngine(VOIX_PIPER, Vitesse(1.0), 0)
+        moteur.speak("Bonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
 
     assert len(vus) == 1
     path, taille = vus[0]
@@ -448,9 +474,9 @@ def test_xtts_prefetch_utilise_des_fichiers_distincts():
     with mock.patch.dict(sys.modules, modules), mock.patch(
         "keraconte.engines.xtts.play_wave"
     ):
-        moteur = XttsEngine({"dialogue": "a", "narration": "b"}, Vitesse(1.0))
+        moteur = XttsEngine(voix_xtts("a", "b"), Vitesse(1.0))
         moteur.speak(
-            "Bonjour. Rebonjour.", narration=False, generation=playback.generation
+            "Bonjour. Rebonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation
         )
 
     chemins = [appel["file_path"] for appel in rendus["appels"]]
@@ -475,3 +501,106 @@ def test_aucun_moteur_ne_rouvre_un_named_temporary_file():
             f"{module.__name__} réutilise NamedTemporaryFile : "
             "réouverture par nom cassée sous Windows, passer par wav_temporaire."
         )
+
+
+def faux_piper_locuteurs(rendus, locuteurs, absente=None):
+    """Double « piper » pour les canaux : locuteurs multi-voix et voix absente.
+
+    « locuteurs » alimente le « speaker_id_map » de la config de CHAQUE voix
+    chargée ; « absente » est un chemin dont le chargement lève, pour éprouver
+    le repli du canal féminin. Chaque « SynthesisConfig » empile son
+    « speaker_id » dans rendus["speaker_ids"].
+    """
+
+    class FausseVoix:
+        def __init__(self):
+            self.config = types.SimpleNamespace(speaker_id_map=locuteurs)
+
+        @staticmethod
+        def load(path):
+            if absente is not None and absente in str(path):
+                raise FileNotFoundError(path)
+            rendus.setdefault("chargees", []).append(str(path))
+            return FausseVoix()
+
+        def synthesize_wav(self, texte, sortie, syn_config):
+            sortie.setnchannels(1)
+            sortie.setsampwidth(2)
+            sortie.setframerate(22050)
+            sortie.writeframes(b"\x00\x00")
+
+    def faux_config(length_scale, speaker_id=None):
+        rendus.setdefault("speaker_ids", []).append(speaker_id)
+        return None
+
+    faux_module = types.ModuleType("piper")
+    faux_module.PiperVoice = FausseVoix
+    faux_module.SynthesisConfig = faux_config
+    return faux_module
+
+
+def test_piper_choisit_le_locuteur_du_modele_multi_voix():
+    """« chemin.onnx#jessica » sélectionne le locuteur via speaker_id_map.
+
+    Le canal féminin par défaut (upmc) est un modèle MULTI-locuteurs : sans la
+    résolution du « #locuteur », toutes les répliques sortiraient avec le
+    locuteur par défaut du modèle — pierre, une voix masculine, à l'exact
+    opposé du but de l'ADR-0001.
+    """
+    rendus = {}
+    faux_module = faux_piper_locuteurs(rendus, {"jessica": 3, "pierre": 1})
+    voix = {
+        Canal.PNJ_MASCULIN: "tom.onnx",
+        Canal.PNJ_FEMININ: "upmc.onnx#jessica",
+        Canal.NARRATION: "siwis.onnx",
+    }
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "keraconte.engines.piper.play_wave"
+    ):
+        moteur = PiperEngine(voix, Vitesse(1.0), 0)
+        moteur.speak("Bonjour.", canal=Canal.PNJ_FEMININ, generation=playback.generation)
+        moteur.speak("Rebonjour.", canal=Canal.PNJ_MASCULIN, generation=playback.generation)
+
+    # Féminin : jessica (id 3) ; masculin : pas de « # », locuteur par défaut.
+    assert rendus["speaker_ids"] == [3, None]
+
+
+def test_piper_feminine_absente_replie_sur_la_voix_masculine():
+    """La voix féminine pas encore téléchargée ne casse rien : repli.
+
+    Elle est NOUVELLE (ADR-0002) : un joueur à jour de code mais pas de voix
+    doit entendre le comportement d'avant — la voix masculine — pas une
+    exception à la première réplique féminine. Le chargement des voix
+    d'origine (masculine, narration) reste, lui, immédiat et strict.
+    """
+    rendus = {}
+    faux_module = faux_piper_locuteurs(rendus, {}, absente="absente")
+    voix = {
+        Canal.PNJ_MASCULIN: "tom.onnx",
+        Canal.PNJ_FEMININ: "absente.onnx#jessica",
+        Canal.NARRATION: "siwis.onnx",
+    }
+    with mock.patch.dict(sys.modules, {"piper": faux_module}), mock.patch(
+        "keraconte.engines.piper.play_wave"
+    ):
+        moteur = PiperEngine(voix, Vitesse(1.0), 0)  # ne lève pas : chargement paresseux
+        moteur.speak("Bonjour.", canal=Canal.PNJ_FEMININ, generation=playback.generation)
+
+    # La réplique est bien sortie (une config créée), sur la voix masculine :
+    # seules tom et siwis ont été chargées, jamais « absente ».
+    assert len(rendus["speaker_ids"]) == 1
+    assert all("absente" not in chemin for chemin in rendus["chargees"])
+
+
+def test_xtts_route_le_canal_feminin_vers_son_echantillon():
+    """Chaque canal XTTS a sa voix : le féminin ne partage ni le masculin ni
+    la narration (règle ADR-0002 : jamais la même voix sur deux canaux)."""
+    rendus = {}
+    modules, _ = faux_xtts(rendus)
+    with mock.patch.dict(sys.modules, modules):
+        moteur = XttsEngine(
+            voix_xtts("pnj.wav", "dida.wav", feminine="fem.wav"), Vitesse(1.0)
+        )
+        moteur.speak("Bonjour.", canal=Canal.PNJ_FEMININ, generation=playback.generation)
+
+    assert [appel["speaker"] for appel in rendus["appels"]] == ["fem.wav"]

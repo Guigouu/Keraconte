@@ -13,7 +13,9 @@ import cv2
 
 from keraconte.detection import find_dialog
 from keraconte.engines import (
+    PIPER_FEMININ,
     VOICES,
+    XTTS_FEMININ,
     XTTS_NARRATION,
     XTTS_VOICE,
     check_xtts,
@@ -24,7 +26,15 @@ from keraconte.text import clean
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--voice", default=str(VOICES / "fr_FR-tom-medium.onnx"), help="voix du PNJ"
+        "--voice",
+        default=str(VOICES / "fr_FR-tom-medium.onnx"),
+        help="voix du PNJ masculin (et de l'inconnu)",
+    )
+    parser.add_argument(
+        "--voice-feminine",
+        default=str(VOICES / PIPER_FEMININ),
+        help="voix du PNJ féminin (piper) ; « chemin.onnx#locuteur » pour "
+        "choisir dans un modèle multi-locuteurs. Absente : repli sur --voice",
     )
     parser.add_argument(
         "--narration-voice",
@@ -46,7 +56,13 @@ def main():
     parser.add_argument(
         "--voice-sample",
         default=XTTS_VOICE,
-        help="voix du PNJ : nom d'une voix du modèle, ou WAV à cloner (xtts)",
+        help="voix du PNJ masculin : nom d'une voix du modèle, ou WAV à "
+        "cloner (xtts)",
+    )
+    parser.add_argument(
+        "--feminine-sample",
+        default=XTTS_FEMININ,
+        help="voix du PNJ féminin : nom ou WAV (xtts)",
     )
     parser.add_argument(
         "--narration-sample",
@@ -65,6 +81,11 @@ def main():
         type=float,
         default=30.0,
         help="secondes avant de relire un dialogue identique",
+    )
+    parser.add_argument(
+        "--list-voices",
+        action="store_true",
+        help="lister les voix Piper installées (et leurs locuteurs) puis quitter",
     )
     parser.add_argument("--test", metavar="IMAGE", help="tester l'OCR sur une image")
     parser.add_argument(
@@ -89,6 +110,10 @@ def main():
         from keraconte.detection import configurer_tesseract
 
         configurer_tesseract()
+
+    if args.list_voices:
+        _lister_voix()
+        return
 
     if args.test:
         frame = cv2.imread(args.test)
@@ -116,9 +141,12 @@ def _smoke_tts(args):
     Le chemin « --test » n'exerce QUE l'OCR ; la synthèse peut être cassée dans
     l'exe sans que rien ne le montre (données espeak-ng absentes -> Piper
     phonémise dans le vide, muet au 1er mot). Ce mode construit le moteur réel
-    et le fait synthétiser, par le MÊME chemin que la production. Un « *mot* »
-    dans le texte route en plus vers la voix narrateur (siwis) : on couvre donc
-    les DEUX voix par défaut, pas seulement le PNJ.
+    et le fait synthétiser, par le MÊME chemin que la production, sur les TROIS
+    canaux (ADR-0001/0002) : PNJ masculin, PNJ féminin, narration. Dans le
+    bundle, la voix féminine (upmc) est embarquée : une voix manquante ou un
+    locuteur introuvable se voit ici, pas chez le joueur. Hors bundle sans la
+    voix téléchargée, le repli du moteur (voix masculine) laisse le smoke
+    passer — c'est le comportement voulu en production aussi.
 
     On neutralise la seule sortie carte son (pas de PortAudio en CI) : ce qu'on
     veut prouver — espeak phonémise, le moteur génère le WAV — précède la
@@ -126,16 +154,56 @@ def _smoke_tts(args):
     """
     from keraconte import playback
     from keraconte.engines import build_engine
+    from keraconte.genre import Canal
     from keraconte.speed import Vitesse
 
     playback.playback.play = lambda *a, **k: None  # sortie audio neutralisée
     moteur = build_engine(args, Vitesse(args.speed))
     generation = playback.playback.generation
     texte = args.dire or "Bonjour, *il hoche la tête*, ceci est un test."
-    moteur.speak(texte, narration=False, generation=generation)
-    # Forcer aussi la voix narrateur, indépendamment du contenu passé.
-    moteur.speak("il acquiesce", narration=True, generation=generation)
-    print("Synthèse OK (voix PNJ + narrateur).", flush=True)
+    moteur.speak(texte, canal=Canal.PNJ_MASCULIN, generation=generation)
+    # Forcer aussi les deux autres canaux, indépendamment du contenu passé.
+    moteur.speak("Je suis prête.", canal=Canal.PNJ_FEMININ, generation=generation)
+    moteur.speak("il acquiesce", canal=Canal.NARRATION, generation=generation)
+    print("Synthèse OK (voix PNJ masculin + féminin + narrateur).", flush=True)
+
+
+def _lister_voix():
+    """Inventaire des voix Piper trouvées localement (« --list-voices »).
+
+    Liste les modèles du dossier de voix avec leurs locuteurs (les modèles
+    multi-locuteurs comme upmc en portent plusieurs, choisis par la syntaxe
+    « chemin.onnx#locuteur »). Ne télécharge rien : dit seulement ce qui est
+    là et comment s'en servir.
+    """
+    import json
+
+    if not VOICES.is_dir():
+        print(f"Aucun dossier de voix : {VOICES}")
+        print("Installer des voix : python -m piper.download_voices fr_FR-tom-medium")
+        return
+    modeles = sorted(VOICES.glob("*.onnx"))
+    if not modeles:
+        print(f"Aucune voix .onnx dans {VOICES}")
+        return
+    print(f"Voix Piper dans {VOICES} :")
+    for onnx in modeles:
+        config = onnx.parent / (onnx.name + ".json")
+        locuteurs = {}
+        try:
+            with open(config, encoding="utf-8") as fichier:
+                locuteurs = json.load(fichier).get("speaker_id_map") or {}
+        except (OSError, ValueError):
+            pass  # config absente ou illisible : la voix reste listée
+        if locuteurs:
+            noms = ", ".join(sorted(locuteurs))
+            print(f"  {onnx.name} — locuteurs : {noms} (choisir : {onnx.name}#nom)")
+        else:
+            print(f"  {onnx.name}")
+    print(
+        "Usage : --voice, --voice-feminine et --narration-voice acceptent un "
+        "chemin .onnx (plus « #locuteur » pour les modèles multi-locuteurs)."
+    )
 
 
 def lancer_avec_overlay(args):

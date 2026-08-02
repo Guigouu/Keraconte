@@ -13,6 +13,8 @@ import sys
 
 import platformdirs
 
+from keraconte.genre import Canal
+
 
 def _racine_donnees():
     """Racine où trouver les modèles de voix, bundle figé d'abord.
@@ -42,14 +44,31 @@ KOKORO_VOICES = KOKORO_DIR / "voices.bin"
 # Voix par défaut de XTTS, prises parmi celles du modèle. Cloner un
 # échantillon reste possible, mais donne un rendu inférieur : les voix
 # intégrées viennent d'enregistrements humains, pas d'une autre synthèse.
+# Trois voix distinctes pour trois canaux (règle ADR-0002 : jamais la même
+# voix sur deux canaux) — « Ana Florence » est une voix féminine du modèle,
+# distincte de la narratrice « Sofia Hellen ».
 XTTS_VOICE = "Damien Black"
+XTTS_FEMININ = "Ana Florence"
 XTTS_NARRATION = "Sofia Hellen"
+
+# Voix Piper par défaut du canal féminin (ADR-0002). Le modèle « upmc » est
+# MULTI-locuteurs : « #jessica » désigne la voix féminine dedans (syntaxe
+# « chemin.onnx#locuteur », résolue via le speaker_id_map de la config —
+# support vérifié dans piper-tts : SynthesisConfig(speaker_id=…)). La voix
+# n'est chargée qu'à la PREMIÈRE réplique féminine, et son absence se replie
+# sur la voix masculine : un joueur qui n'a pas téléchargé upmc entend
+# exactement le programme d'avant.
+PIPER_FEMININ = "fr_FR-upmc-medium.onnx#jessica"
 
 
 class Engine(abc.ABC):
     @abc.abstractmethod
-    def speak(self, text, narration, generation):
-        """Synthétise et joue le texte. narration=True pour une didascalie.
+    def speak(self, text, canal, generation):
+        """Synthétise et joue le texte sur le canal de voix donné.
+
+        « canal » (keraconte.genre.Canal) remplace l'ancien booléen
+        « narration » : PNJ_MASCULIN, PNJ_FEMININ ou NARRATION — la décision
+        vient du Reader (cascade ADR-0001), jamais du moteur.
 
         « generation » identifie le dialogue courant : le moteur s'interrompt
         si une nouvelle génération survient (un autre dialogue a pris le
@@ -75,6 +94,7 @@ def check_xtts(args):
     # est une faute de frappe, pas un nom de voix : le dire tout de suite.
     for option, voice in (
         ("--voice-sample", args.voice_sample),
+        ("--feminine-sample", args.feminine_sample),
         ("--narration-sample", args.narration_sample),
     ):
         if voice.endswith(".wav") and not os.path.isfile(voice):
@@ -109,13 +129,21 @@ def build_engine(args, vitesse):
     """
     if args.engine == "xtts":
         return XttsEngine(
-            {"dialogue": args.voice_sample, "narration": args.narration_sample},
+            {
+                Canal.PNJ_MASCULIN: args.voice_sample,
+                Canal.PNJ_FEMININ: args.feminine_sample,
+                Canal.NARRATION: args.narration_sample,
+            },
             vitesse,
         )
     if args.engine == "kokoro":
         return KokoroEngine(vitesse)
     return PiperEngine(
-        {"dialogue": args.voice, "narration": args.narration_voice},
+        {
+            Canal.PNJ_MASCULIN: args.voice,
+            Canal.PNJ_FEMININ: args.voice_feminine,
+            Canal.NARRATION: args.narration_voice,
+        },
         vitesse,
         args.pause,
     )

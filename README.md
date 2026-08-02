@@ -21,7 +21,7 @@ python -m venv --system-site-packages .venv
 .venv/bin/pip install -e '.[linux]'
 
 mkdir -p ~/.local/share/piper-voices && cd ~/.local/share/piper-voices
-python -m piper.download_voices fr_FR-tom-medium fr_FR-siwis-medium
+python -m piper.download_voices fr_FR-tom-medium fr_FR-siwis-medium fr_FR-upmc-medium
 ```
 
 Le `--system-site-packages` est nécessaire : `python-gobject` et
@@ -58,10 +58,13 @@ Options utiles :
 | Option | Effet | Défaut |
 |---|---|---|
 | `--engine` | moteur de synthèse : `piper`, `kokoro` ou `xtts` | `piper` |
-| `--voice` | voix du PNJ (piper) | `fr_FR-tom-medium` |
+| `--voice` | voix du PNJ masculin — et de l'inconnu (piper) | `fr_FR-tom-medium` |
+| `--voice-feminine` | voix du PNJ féminin (piper) ; `chemin.onnx#locuteur` pour un modèle multi-locuteurs | `fr_FR-upmc-medium#jessica` |
 | `--narration-voice` | voix des didascalies (piper) | `fr_FR-siwis-medium` |
-| `--voice-sample` | extrait WAV de la voix du PNJ à cloner (xtts) | — |
-| `--narration-sample` | extrait WAV de la voix des didascalies (xtts) | — |
+| `--voice-sample` | voix du PNJ masculin : nom du modèle ou WAV à cloner (xtts) | `Damien Black` |
+| `--feminine-sample` | voix du PNJ féminin : nom ou WAV (xtts) | `Ana Florence` |
+| `--narration-sample` | voix des didascalies : nom ou WAV (xtts) | `Sofia Hellen` |
+| `--list-voices` | lister les voix Piper installées et leurs locuteurs, puis quitter | — |
 | `--speed` | débit de la parole : au-dessus de 1, plus rapide | `1.22` |
 | `--pause` | silence entre deux phrases, en ms (piper) | `320` |
 | `--fps` | images analysées par seconde | `4` |
@@ -152,13 +155,30 @@ l'accepte d'avance.
 Cette pile pèse environ 3 Go : elle est délibérément tenue hors du venv du
 projet, qui ne dépend pas de torch.
 
-### Pas de détection du genre du PNJ
+### Voix selon le genre du PNJ
 
-La voix ne s'adapte pas au genre du personnage, faute de source fiable :
-l'OCR du cartouche rend « Klako » en `R ÉN A`, avec des ratios de
-rapprochement de 0,11 à 0,24 là où il en faudrait 0,9 ; et les accords dans
-le texte sont muets, les PNJ disant « Je suis Klako, chasseur », où c'est le
-métier qui porte le genre, pas la grammaire.
+Quand un signal **sûr** établit le genre du personnage, la réplique part sur
+la voix correspondante (masculine ou féminine) ; sans signal, rien ne change
+— la voix par défaut, exactement comme avant. Une mauvaise voix étant pire
+que pas d'adaptation, le doute vaut toujours abstention, et la voix ne change
+jamais en cours de réplique (décision prise une fois, au lancement de la
+lecture). Détail des signaux et mesures : `docs/adr/0001-voix-selon-genre-pnj.md`.
+
+Trois signaux, en cascade :
+
+1. **le lexique genré** en auto-désignation — « Je suis Klako, *chasseur* »,
+   « je suis *la gardienne* » : c'est le métier ou le titre qui porte le
+   genre, pas la grammaire ;
+2. **les accords en première personne** — « je suis venue » (le « tu es
+   venue », qui accorde le joueur, ne vote pas) ;
+3. **une table locale optionnelle** `empreinte de réplique → genre`, générée
+   hors ligne par `outils/generer_table_genre.py` depuis les données
+   communautaires du jeu (champ `gender` des PNJ). Sans table, ce signal est
+   simplement inerte — le programme ne fait AUCUNE requête réseau en jeu.
+
+L'OCR du cartouche de nom, lui, reste écarté : mesuré, il rend « Klako » en
+`R ÉN A` (ratios 0,11–0,24 là où il en faudrait 0,9). Kokoro n'a qu'une voix
+française : il reste hors adaptation.
 
 ### Deux voix
 

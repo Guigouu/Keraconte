@@ -17,6 +17,7 @@ from keraconte.detection import (
     find_dialog_box,
 )
 from keraconte.engines import build_engine
+from keraconte.genre import canal_pour, decider_genre
 from keraconte.playback import player_state
 from keraconte.speaker import Speaker
 from keraconte.speed import Vitesse
@@ -178,13 +179,21 @@ class Reader:
         self._dire(text, len(self.pending), now)
 
     def _dire(self, text, images_vues, now):
-        """Confie le texte à la synthèse et note qu'il a été lu."""
+        """Confie le texte à la synthèse et note qu'il a été lu.
+
+        Le genre du PNJ est décidé ICI, une fois par réplique — jamais par
+        image : la voix ne change pas en cours de phrase quand l'OCR cligne
+        (invariant ADR-0001). Sans signal sûr, « canal_pour » rend le canal
+        masculin : le comportement d'avant, à l'identique.
+        """
         self.pending = []
         self.last_text = text
         self.last_seen = now
+        genre, source = decider_genre(text)
         _trace(
             f">>> SAY : lance la lecture ({len(text)} car., "
-            f"posé après {images_vues} image(s))"
+            f"posé après {images_vues} image(s)) "
+            f"| genre={genre or 'abstention'} ({source})"
         )
         print(f"\n> {text}", flush=True)
-        self.speaker.say(text)
+        self.speaker.say(text, canal_pour(genre))
